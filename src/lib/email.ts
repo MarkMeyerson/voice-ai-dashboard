@@ -129,7 +129,7 @@ function shell(opts: {
 
 // Generic transactional send.
 export async function sendEmail(args: {
-  to: string
+  to: string | string[]
   subject: string
   heading: string
   intro: string
