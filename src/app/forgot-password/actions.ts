@@ -14,7 +14,7 @@ export async function requestReset(
   const supabase = await createClient()
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${appUrl}/reset-password`,
+    redirectTo: `${appUrl}/auth/confirm?next=/reset-password`,
   })
 
   // Always report success so we don't leak which emails exist.
