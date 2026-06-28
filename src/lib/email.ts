@@ -1,6 +1,6 @@
 import { Resend } from 'resend'
 
-const FROM = process.env.RESEND_FROM_EMAIL || 'VoiceDesk <noreply@oceansideaisolutions.com>'
+const FROM = process.env.RESEND_FROM_EMAIL || 'VoiceDesk <info@sherpatech.ai>'
 
 export function resendClient() {
   return new Resend(process.env.RESEND_API_KEY!)

@@ -103,10 +103,10 @@ export default async function ClientSettings({
           <p className="mt-1 text-sm text-ink">
             Email{' '}
             <a
-              href="mailto:support@oceansideaisolutions.com"
+              href="mailto:info@sherpatech.ai"
               className="text-seal hover:underline"
             >
-              support@oceansideaisolutions.com
+              info@sherpatech.ai
             </a>{' '}
             and we&apos;ll get back to you.
           </p>
