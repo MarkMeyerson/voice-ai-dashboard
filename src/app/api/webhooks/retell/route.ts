@@ -124,8 +124,11 @@ export async function POST(request: NextRequest) {
       }
 
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voicedesk.sherpatech.ai'
+      const adminEmail = process.env.ADMIN_SUMMARY_EMAIL
+      const toAddresses: string[] = [client.notification_email]
+      if (adminEmail && adminEmail !== client.notification_email) toAddresses.push(adminEmail)
       await sendCallSummaryEmail({
-        to: client.notification_email,
+        to: toAddresses.length === 1 ? toAddresses[0] : toAddresses,
         clientName: client.name,
         callId: call.call_id,
         durationSeconds: row.duration_seconds,

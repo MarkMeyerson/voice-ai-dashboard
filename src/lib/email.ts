@@ -165,7 +165,7 @@ export async function sendWelcomeEmail(args: {
 
 // Per-call summary sent to the client's notification email.
 export async function sendCallSummaryEmail(args: {
-  to: string
+  to: string | string[]
   clientName: string
   callId: string
   durationSeconds: number
