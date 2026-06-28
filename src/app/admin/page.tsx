@@ -20,14 +20,26 @@ function money(cents: number) {
 export default async function AdminPage() {
   await requireAdmin()
   const supabase = await createClient()
-  const { data } = await supabase
-    .from('clients')
-    .select(
-      'id, name, slug, billing_mode, rate_per_minute_cents, cost_per_minute_cents, monthly_price_cents, status'
-    )
-    .order('created_at', { ascending: false })
+
+  const now = new Date()
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+
+  const [{ data }, { data: callTotals }] = await Promise.all([
+    supabase
+      .from('clients')
+      .select('id, name, slug, billing_mode, rate_per_minute_cents, cost_per_minute_cents, monthly_price_cents, status')
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('calls')
+      .select('billed_cents, cost_cents')
+      .gte('started_at', monthStart),
+  ])
 
   const pods = (data ?? []) as Pod[]
+
+  const totalBilledCents = (callTotals ?? []).reduce((s, r) => s + Number(r.billed_cents), 0)
+  const totalCostCents   = (callTotals ?? []).reduce((s, r) => s + Number(r.cost_cents), 0)
+  const marginCents      = totalBilledCents - totalCostCents
 
   return (
     <div className="mx-auto max-w-5xl space-y-8">
@@ -53,8 +65,8 @@ export default async function AdminPage() {
       {/* Stats */}
       <div className="grid grid-cols-1 divide-y divide-ink/12 border border-ink/15 bg-card sm:grid-cols-3 sm:divide-x sm:divide-y-0">
         <Stat label="Active pods" value={String(pods.length)} />
-        <Stat label="Billed this month" value="$0.00" sub="all clients" />
-        <Stat label="Your margin" value="$0.00" sub="this month" accent />
+        <Stat label="Billed this month" value={money(totalBilledCents)} sub="all clients" />
+        <Stat label="Your margin" value={money(marginCents)} sub="this month" accent />
       </div>
 
       {/* Pods */}

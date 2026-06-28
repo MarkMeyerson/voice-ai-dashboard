@@ -40,6 +40,7 @@ create table public.calls (
   id                uuid primary key default gen_random_uuid(),
   client_id         uuid not null references public.clients (id) on delete cascade,
   retell_call_id    text not null unique,            -- UNIQUE = idempotency, never double-insert a call
+  call_type         text,                             -- 'phone_call' | 'web_call' etc.
   started_at        timestamptz,
   duration_seconds  integer     not null default 0,
   cost_cents        numeric(12,4) not null default 0,  -- our Retell cost for this call
