@@ -59,19 +59,36 @@ export async function POST(request: NextRequest) {
   }
 
   const row = callToRow(call, client.id, client.rate_per_minute_cents)
-  const { error } = await supabase
+  const { data: upserted, error } = await supabase
     .from('calls')
     .upsert(row, { onConflict: 'retell_call_id' })
+    .select('id')
+    .single()
   if (error) return new NextResponse(error.message, { status: 500 })
 
-  if (event === 'call_ended' && client.stripe_customer_id) {
-    try {
-      await reportUsage({
-        stripeCustomerId: client.stripe_customer_id,
-        minutes: row.duration_seconds / 60,
-      })
-    } catch {
-      /* best effort */
+  // Report usage to Stripe only on call_ended, only once per call (idempotency via usage_events).
+  if (event === 'call_ended' && client.stripe_customer_id && upserted?.id) {
+    const { data: alreadyReported } = await supabase
+      .from('usage_events')
+      .select('id')
+      .eq('call_id', upserted.id)
+      .maybeSingle()
+
+    if (!alreadyReported) {
+      try {
+        const meterEvent = await reportUsage({
+          stripeCustomerId: client.stripe_customer_id,
+          minutes: row.duration_seconds / 60,
+        })
+        await supabase.from('usage_events').insert({
+          client_id: client.id,
+          call_id: upserted.id,
+          minutes: row.duration_seconds / 60,
+          stripe_meter_event_id: meterEvent.identifier,
+        })
+      } catch (e) {
+        console.error('[stripe] reportUsage failed', e)
+      }
     }
   }
 
