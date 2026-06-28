@@ -204,7 +204,7 @@ export async function sendCallSummaryEmail(args: {
   const links: string[] = []
   if (args.driveLink)
     links.push(
-      `<a href="${args.driveLink}" style="color:#b1442b;text-decoration:none;font-weight:600">View transcript on Drive</a>`
+      `<a href="${args.driveLink}" style="color:#b1442b;text-decoration:none;font-weight:600">View full transcript</a>`
     )
   if (args.recordingUrl)
     links.push(
