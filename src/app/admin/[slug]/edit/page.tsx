@@ -21,7 +21,7 @@ export default async function EditPodPage({
   const { data: client } = await supabase
     .from('clients')
     .select(
-      'id, name, slug, billing_mode, status, rate_per_minute_cents, cost_per_minute_cents, monthly_price_cents, retell_api_key, retell_agent_id'
+      'id, name, slug, billing_mode, status, rate_per_minute_cents, cost_per_minute_cents, monthly_price_cents, retell_api_key, retell_agent_id, notification_email'
     )
     .eq('slug', slug)
     .maybeSingle()
@@ -70,6 +70,7 @@ export default async function EditPodPage({
           costDollars: dollars(client.cost_per_minute_cents),
           monthlyDollars: dollars(client.monthly_price_cents),
           retellApiKey: client.retell_api_key ?? '',
+          notificationEmail: client.notification_email ?? '',
           agents,
           users: (users ?? []).map((u) => ({ id: u.id, email: u.email ?? '' })),
         }}

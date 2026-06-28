@@ -166,6 +166,7 @@ export async function createClientPod(formData: FormData): Promise<void> {
   const emails = tryParseArray<string>(
     formData.get('emails') as string | null
   )
+  const notification_email = String(formData.get('notification_email') ?? '').trim() || null
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 
@@ -218,6 +219,7 @@ export async function createClientPod(formData: FormData): Promise<void> {
       monthly_price_cents,
       stripe_customer_id: stripeCustomerId,
       stripe_subscription_id: stripeSubscriptionId,
+      notification_email,
       status: 'active',
     })
     .select('id')
@@ -354,6 +356,7 @@ export async function updateClientPod(formData: FormData): Promise<void> {
   const retell_api_key = String(formData.get('retell_api_key') ?? '').trim()
   const billing_mode = String(formData.get('billing_mode') ?? 'per_minute')
   const status = String(formData.get('status') ?? 'active')
+  const notification_email = String(formData.get('notification_email') ?? '').trim() || null
 
   const rate_per_minute_cents = dollarsToCents(formData.get('rate_per_minute'))
   const cost_per_minute_cents = dollarsToCents(formData.get('cost_per_minute'))
@@ -372,6 +375,7 @@ export async function updateClientPod(formData: FormData): Promise<void> {
       rate_per_minute_cents,
       cost_per_minute_cents,
       monthly_price_cents,
+      notification_email,
     })
     .eq('id', client_id)
 

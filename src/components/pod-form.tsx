@@ -18,6 +18,7 @@ type PodFormProps = {
     costDollars: string
     monthlyDollars: string
     retellApiKey: string
+    notificationEmail: string
     agents: Agent[]
     users: { id: string; email: string }[]
   }
@@ -45,6 +46,9 @@ export function PodForm(props: PodFormProps) {
   const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(
     new Set(initial?.agents.map((a) => a.id) ?? [])
   )
+
+  // ── notification email ────────────────────────────────────────────────────
+  const [notificationEmail, setNotificationEmail] = useState(initial?.notificationEmail ?? '')
 
   // ── emails ────────────────────────────────────────────────────────────────
   // Each entry is either a "new" email (no id) or an existing user row.
@@ -148,6 +152,7 @@ export function PodForm(props: PodFormProps) {
       fd.set('cost_per_minute', costDollars)
       fd.set('monthly_price', monthlyDollars)
       fd.set('password', password)
+      fd.set('notification_email', notificationEmail)
 
       const selectedAgents = availableAgents.filter((a) => selectedAgentIds.has(a.id))
       fd.set('agents', JSON.stringify(selectedAgents))
@@ -180,6 +185,7 @@ export function PodForm(props: PodFormProps) {
         .map((a) => a.id)
       fd.set('add_agents', JSON.stringify(addedAgents))
       fd.set('remove_agent_ids', JSON.stringify(removedAgentIds))
+      fd.set('notification_email', notificationEmail)
 
       const addedEmails = emailRows
         .filter((r): r is Extract<EmailRow, { kind: 'new' }> => r.kind === 'new')
@@ -373,6 +379,21 @@ export function PodForm(props: PodFormProps) {
             </div>
           </div>
         )}
+      </div>
+
+      {/* ── Notification email ───────────────────────────────────────────── */}
+      <div className="space-y-1">
+        <label className={labelCls}>Call summary email</label>
+        <input
+          type="email"
+          value={notificationEmail}
+          onChange={(e) => setNotificationEmail(e.target.value)}
+          placeholder="drthomas@example.com"
+          className={inputCls}
+        />
+        <p className="text-[11px] text-muted">
+          Receives a summary email with transcript and recording link after each call.
+        </p>
       </div>
 
       {/* ── Client emails ────────────────────────────────────────────────── */}

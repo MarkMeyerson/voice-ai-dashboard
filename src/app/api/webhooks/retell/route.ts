@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { verifyRetellSignature, callToRow, type RetellCall } from '@/lib/retell'
 import { reportUsage } from '@/lib/stripe'
+import { ensureClientFolder, uploadTranscriptToDrive } from '@/lib/drive'
+import { sendCallSummaryEmail } from '@/lib/email'
 
 // Receives live call events from Retell across MANY agents / Retell accounts.
 // A pod can own multiple agents; each pod can use its own Retell API key.
@@ -23,7 +25,16 @@ export async function POST(request: NextRequest) {
 
   // Resolve the pod: first via the pod_agents map, then legacy single-agent field.
   let client:
-    | { id: string; rate_per_minute_cents: number; stripe_customer_id: string | null; retell_api_key: string | null }
+    | {
+        id: string
+        name: string
+        slug: string
+        rate_per_minute_cents: number
+        stripe_customer_id: string | null
+        retell_api_key: string | null
+        notification_email: string | null
+        drive_folder_id: string | null
+      }
     | null = null
 
   const { data: pa } = await supabase
@@ -35,7 +46,7 @@ export async function POST(request: NextRequest) {
   const clientId = pa?.client_id ?? null
   const q = supabase
     .from('clients')
-    .select('id, rate_per_minute_cents, stripe_customer_id, retell_api_key')
+    .select('id, name, slug, rate_per_minute_cents, stripe_customer_id, retell_api_key, notification_email, drive_folder_id')
   const { data } = clientId
     ? await q.eq('id', clientId).maybeSingle()
     : await q.eq('retell_agent_id', call.agent_id).maybeSingle()
@@ -84,6 +95,49 @@ export async function POST(request: NextRequest) {
       } catch (e) {
         console.error('[stripe] reportUsage failed', e)
       }
+    }
+  }
+
+  // Drive mirror + call summary email — fires on call_analyzed (has transcript + sentiment).
+  if (event === 'call_analyzed' && client.notification_email) {
+    try {
+      let folderId = client.drive_folder_id
+
+      if (!folderId) {
+        folderId = await ensureClientFolder(client.name)
+        if (folderId) {
+          await supabase
+            .from('clients')
+            .update({ drive_folder_id: folderId })
+            .eq('id', client.id)
+        }
+      }
+
+      let driveLink: string | null = null
+      if (folderId && row.transcript) {
+        driveLink = await uploadTranscriptToDrive({
+          folderId,
+          callId: call.call_id,
+          startedAt: row.started_at ?? null,
+          transcript: row.transcript,
+        })
+      }
+
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voicedesk.sherpatech.ai'
+      await sendCallSummaryEmail({
+        to: client.notification_email,
+        clientName: client.name,
+        callId: call.call_id,
+        durationSeconds: row.duration_seconds,
+        sentiment: call.call_analysis?.user_sentiment ?? null,
+        fromNumber: row.from_number,
+        transcript: row.transcript ?? null,
+        recordingUrl: call.recording_url ?? null,
+        driveLink,
+        dashboardUrl: `${appUrl}/${client.slug}`,
+      })
+    } catch (e) {
+      console.error('[drive/email] call summary failed', e)
     }
   }
 

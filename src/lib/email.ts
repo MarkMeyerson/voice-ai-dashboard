@@ -163,6 +163,92 @@ export async function sendWelcomeEmail(args: {
   })
 }
 
+// Per-call summary sent to the client's notification email.
+export async function sendCallSummaryEmail(args: {
+  to: string
+  clientName: string
+  callId: string
+  durationSeconds: number
+  sentiment: string | null
+  fromNumber: string | null
+  transcript: string | null
+  recordingUrl: string | null
+  driveLink: string | null
+  dashboardUrl: string
+}) {
+  const mins = Math.floor(args.durationSeconds / 60)
+  const secs = args.durationSeconds % 60
+  const duration = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`
+
+  const sentimentColor =
+    args.sentiment === 'Positive'
+      ? '#2e7d32'
+      : args.sentiment === 'Negative'
+        ? '#c62828'
+        : '#555'
+  const sentimentBg =
+    args.sentiment === 'Positive'
+      ? '#e8f5e9'
+      : args.sentiment === 'Negative'
+        ? '#fce4ec'
+        : '#f5f5f5'
+
+  const sentimentBadge = args.sentiment
+    ? `<span style="display:inline-block;padding:2px 8px;font-size:11px;font-family:Helvetica,Arial,sans-serif;letter-spacing:.06em;text-transform:uppercase;background:${sentimentBg};color:${sentimentColor}">${args.sentiment}</span>`
+    : '—'
+
+  const transcriptPreview = args.transcript
+    ? args.transcript.slice(0, 700) + (args.transcript.length > 700 ? '…' : '')
+    : null
+
+  const links: string[] = []
+  if (args.driveLink)
+    links.push(
+      `<a href="${args.driveLink}" style="color:#b1442b;text-decoration:none;font-weight:600">View transcript on Drive</a>`
+    )
+  if (args.recordingUrl)
+    links.push(
+      `<a href="${args.recordingUrl}" style="color:#b1442b;text-decoration:none;font-weight:600">Listen to recording</a>`
+    )
+
+  const bodyHtml = `
+    <table style="width:100%;border-collapse:collapse;margin-bottom:8px">
+      <tr>
+        <td style="padding:7px 0;font-family:Helvetica,Arial,sans-serif;font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:#7c7461;border-bottom:1px solid rgba(32,29,22,.08);width:100px">Duration</td>
+        <td style="padding:7px 0;font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#201d16;border-bottom:1px solid rgba(32,29,22,.08)">${duration}</td>
+      </tr>
+      <tr>
+        <td style="padding:7px 0;font-family:Helvetica,Arial,sans-serif;font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:#7c7461;border-bottom:1px solid rgba(32,29,22,.08)">Caller</td>
+        <td style="padding:7px 0;font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#201d16;border-bottom:1px solid rgba(32,29,22,.08)">${args.fromNumber ?? '—'}</td>
+      </tr>
+      <tr>
+        <td style="padding:7px 0;font-family:Helvetica,Arial,sans-serif;font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:#7c7461">Sentiment</td>
+        <td style="padding:7px 0">${sentimentBadge}</td>
+      </tr>
+    </table>
+    ${
+      transcriptPreview
+        ? `<p style="font-family:Georgia,'Times New Roman',serif;font-size:13px;line-height:1.75;color:#5a5649;font-style:italic;margin:20px 0 0;padding:14px 16px;background:rgba(32,29,22,.04);border-left:2px solid rgba(177,68,43,.35)">${transcriptPreview.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`
+        : ''
+    }
+    ${
+      links.length
+        ? `<p style="margin:20px 0 0;font-family:Helvetica,Arial,sans-serif;font-size:13px">${links.join('&nbsp;&nbsp;·&nbsp;&nbsp;')}</p>`
+        : ''
+    }
+  `
+
+  return sendEmail({
+    to: args.to,
+    subject: `Call summary — ${args.clientName}`,
+    heading: 'New call summary',
+    intro: `A call just ended on your ${args.clientName} assistant.`,
+    bodyHtml,
+    ctaText: 'Open dashboard',
+    ctaUrl: args.dashboardUrl,
+  })
+}
+
 // Client account invite (set password + first sign-in).
 export async function sendInviteEmail(args: {
   to: string
