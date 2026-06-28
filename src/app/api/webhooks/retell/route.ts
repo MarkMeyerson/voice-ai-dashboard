@@ -44,14 +44,9 @@ export async function POST(request: NextRequest) {
   if (!client) return NextResponse.json({ skipped: 'no pod for agent' })
 
   // Verify with the pod's own Retell key, falling back to the global key.
-  // NOTE: test mode — if the signature doesn't match we log and still record,
-  // so live calls are never silently dropped while we confirm Retell's exact
-  // signature scheme against real deliveries. Re-tighten to a 401 for production.
   const key = client.retell_api_key || process.env.RETELL_API_KEY!
   if (!verifyRetellSignature(raw, signature, key)) {
-    console.warn(
-      `[retell webhook] signature mismatch for agent ${call.agent_id} — recording anyway (test mode)`
-    )
+    return new NextResponse('invalid signature', { status: 401 })
   }
 
   if (event !== 'call_ended' && event !== 'call_analyzed') {
