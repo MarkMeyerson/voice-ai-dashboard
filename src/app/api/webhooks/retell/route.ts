@@ -139,6 +139,10 @@ export async function POST(request: NextRequest) {
         driveLink,
         dashboardUrl: `${appUrl}/${client.slug}`,
       })
+      await supabase
+        .from('calls')
+        .update({ email_sent_at: new Date().toISOString() })
+        .eq('id', upserted.id)
     } catch (e) {
       console.error('[drive/email] call summary failed', e)
     }
