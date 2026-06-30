@@ -26,7 +26,7 @@ export default async function ClientDashboard({
   const { data: client } = await supabase
     .from('clients')
     .select(
-      'id, name, slug, stripe_customer_id, billing_mode, rate_per_minute_cents, monthly_price_cents'
+      'id, name, slug, stripe_customer_id, billing_mode, rate_per_minute_cents, monthly_price_cents, created_at'
     )
     .eq('slug', slug)
     .maybeSingle()
@@ -40,7 +40,7 @@ export default async function ClientDashboard({
   const { data } = await supabase
     .from('calls')
     .select(
-      'id, retell_call_id, call_type, started_at, duration_seconds, billed_cents, sentiment, disconnect_reason, recording_url, transcript'
+      'id, retell_call_id, call_type, started_at, duration_seconds, billed_cents, sentiment, disconnect_reason, recording_url, transcript, from_number'
     )
     .eq('client_id', client.id)
     .order('started_at', { ascending: false, nullsFirst: false })
@@ -103,7 +103,7 @@ export default async function ClientDashboard({
           </div>
           <SyncButton slug={slug} />
         </div>
-        <CallLog calls={calls} />
+        <CallLog calls={calls} billingStartsAt={client.created_at} />
       </div>
     </main>
   )

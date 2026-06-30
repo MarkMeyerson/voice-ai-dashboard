@@ -6,6 +6,7 @@ export type CallRow = {
   id: string
   retell_call_id: string
   call_type: string | null
+  from_number: string | null
   started_at: string | null
   duration_seconds: number
   billed_cents: number
@@ -22,6 +23,14 @@ function mmss(sec: number) {
   const m = Math.floor(sec / 60)
   return `${m}:${String(sec % 60).padStart(2, '0')}`
 }
+function phone(n: string | null) {
+  if (!n) return '—'
+  const d = n.replace(/\D/g, '')
+  if (d.length === 11 && d.startsWith('1'))
+    return `(${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7)}`
+  if (d.length === 10) return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`
+  return n
+}
 function monthKey(iso: string | null) {
   return iso ? iso.slice(0, 7) : 'unknown'
 }
@@ -36,7 +45,7 @@ function monthLabel(key: string) {
 
 type Sort = 'newest' | 'oldest' | 'longest' | 'costliest'
 
-export function CallLog({ calls }: { calls: CallRow[] }) {
+export function CallLog({ calls, billingStartsAt }: { calls: CallRow[]; billingStartsAt?: string }) {
   const months = useMemo(() => {
     const set = new Set(calls.map((c) => monthKey(c.started_at)))
     return Array.from(set).sort().reverse()
@@ -52,7 +61,7 @@ export function CallLog({ calls }: { calls: CallRow[] }) {
     const q = query.trim().toLowerCase()
     if (q) {
       rows = rows.filter((c) =>
-        [c.transcript, c.sentiment, c.disconnect_reason, c.retell_call_id, c.call_type]
+        [c.transcript, c.sentiment, c.disconnect_reason, c.retell_call_id, c.call_type, c.from_number]
           .filter(Boolean)
           .some((f) => String(f).toLowerCase().includes(q))
       )
@@ -67,6 +76,29 @@ export function CallLog({ calls }: { calls: CallRow[] }) {
     })
     return sorted
   }, [calls, month, query, sort])
+
+  // Insert a billing divider between billed and pre-billing calls (date sort only).
+  const withDivider = useMemo(() => {
+    type Item = { kind: 'call'; call: CallRow } | { kind: 'divider' }
+    if (!billingStartsAt || (sort !== 'newest' && sort !== 'oldest')) {
+      return scoped.map((call): Item => ({ kind: 'call', call }))
+    }
+    const result: Item[] = []
+    let inserted = false
+    for (const c of scoped) {
+      if (!inserted && c.started_at) {
+        if (sort === 'newest' && c.started_at < billingStartsAt) {
+          result.push({ kind: 'divider' })
+          inserted = true
+        } else if (sort === 'oldest' && c.started_at >= billingStartsAt) {
+          result.push({ kind: 'divider' })
+          inserted = true
+        }
+      }
+      result.push({ kind: 'call', call: c })
+    }
+    return result
+  }, [scoped, billingStartsAt, sort])
 
   const stats = useMemo(() => {
     const billed = scoped.reduce((s, c) => s + Number(c.billed_cents), 0)
@@ -88,7 +120,7 @@ export function CallLog({ calls }: { calls: CallRow[] }) {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search transcripts, sentiment, call id…"
+          placeholder="Search transcripts, caller, sentiment…"
           className="min-w-[240px] flex-1 border-b border-ink/20 bg-transparent pb-2 text-sm text-ink placeholder:text-muted/60 outline-none transition focus:border-seal"
         />
         <Select value={month} onChange={setMonth}>
@@ -109,10 +141,10 @@ export function CallLog({ calls }: { calls: CallRow[] }) {
 
       {/* Table */}
       <div className="border border-ink/15 bg-card">
-        <div className="grid grid-cols-[1.4fr_0.7fr_0.8fr_0.7fr_0.9fr] gap-4 border-b border-ink/15 px-6 py-3 text-[11px] uppercase tracking-[0.18em] text-muted">
+        <div className="grid grid-cols-[1.3fr_1.1fr_0.6fr_0.7fr_0.9fr] gap-4 border-b border-ink/15 px-6 py-3 text-[11px] uppercase tracking-[0.18em] text-muted">
           <span>Time</span>
+          <span>Caller</span>
           <span>Length</span>
-          <span>Type</span>
           <span>Cost</span>
           <span>Sentiment</span>
         </div>
@@ -123,46 +155,57 @@ export function CallLog({ calls }: { calls: CallRow[] }) {
             <p className="mt-1 text-sm text-muted">Try a different month or search.</p>
           </div>
         ) : (
-          scoped.map((c) => (
-            <details key={c.id} className="group border-b border-ink/10 last:border-0">
-              <summary className="grid cursor-pointer grid-cols-[1.4fr_0.7fr_0.8fr_0.7fr_0.9fr] items-center gap-4 px-6 py-3.5 text-sm marker:content-none hover:bg-ink/[0.02]">
-                <span className="text-ink">
-                  {c.started_at ? new Date(c.started_at).toLocaleString() : '—'}
+          withDivider.map((item, i) =>
+            item.kind === 'divider' ? (
+              <div key="billing-divider" className="relative flex items-center gap-4 border-b border-ink/10 px-6 py-2.5">
+                <div className="h-px flex-1 bg-seal/40" />
+                <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.2em] text-seal">
+                  Billing starts below this line
                 </span>
-                <span className="text-muted">{mmss(c.duration_seconds)}</span>
-                <span className="text-muted">{c.call_type || '—'}</span>
-                <span className="text-ink">{money(Number(c.billed_cents))}</span>
-                <span className="flex items-center gap-2 text-muted">
-                  <span className="h-1.5 w-1.5 rounded-full bg-seal" />
-                  {c.sentiment || '—'}
-                </span>
-              </summary>
-              <div className="space-y-4 bg-card-2 px-6 py-4 text-sm">
-                <div className="flex flex-wrap gap-x-8 gap-y-2 text-xs">
-                  <Detail label="End reason" value={c.disconnect_reason || '—'} />
-                  <Detail label="Call ID" value={c.retell_call_id} mono />
-                </div>
-                {c.recording_url && (
-                  <div className="border border-ink/15 bg-paper p-3">
-                    <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-muted">
-                      Recording
-                    </p>
-                    <audio controls preload="none" src={c.recording_url} className="w-full">
-                      Your browser does not support audio playback.
-                    </audio>
-                  </div>
-                )}
-                <div>
-                  <p className="mb-1 text-[11px] uppercase tracking-[0.18em] text-muted">
-                    Transcript
-                  </p>
-                  <p className="max-h-64 overflow-auto whitespace-pre-wrap leading-relaxed text-ink/80">
-                    {c.transcript || 'No transcript available.'}
-                  </p>
-                </div>
+                <div className="h-px flex-1 bg-seal/40" />
               </div>
-            </details>
-          ))
+            ) : (
+              <details key={item.call.id} className="group border-b border-ink/10 last:border-0">
+                <summary className="grid cursor-pointer grid-cols-[1.3fr_1.1fr_0.6fr_0.7fr_0.9fr] items-center gap-4 px-6 py-3.5 text-sm marker:content-none hover:bg-ink/[0.02]">
+                  <span className="text-ink">
+                    {item.call.started_at ? new Date(item.call.started_at).toLocaleString() : '—'}
+                  </span>
+                  <span className="font-mono text-[13px] text-ink">{phone(item.call.from_number)}</span>
+                  <span className="text-muted">{mmss(item.call.duration_seconds)}</span>
+                  <span className="text-ink">{money(Number(item.call.billed_cents))}</span>
+                  <span className="flex items-center gap-2 text-muted">
+                    <span className="h-1.5 w-1.5 rounded-full bg-seal" />
+                    {item.call.sentiment || '—'}
+                  </span>
+                </summary>
+                <div className="space-y-4 bg-card-2 px-6 py-4 text-sm">
+                  <div className="flex flex-wrap gap-x-8 gap-y-2 text-xs">
+                    <Detail label="Type" value={item.call.call_type || '—'} />
+                    <Detail label="End reason" value={item.call.disconnect_reason || '—'} />
+                    <Detail label="Call ID" value={item.call.retell_call_id} mono />
+                  </div>
+                  {item.call.recording_url && (
+                    <div className="border border-ink/15 bg-paper p-3">
+                      <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-muted">
+                        Recording
+                      </p>
+                      <audio controls preload="none" src={item.call.recording_url} className="w-full">
+                        Your browser does not support audio playback.
+                      </audio>
+                    </div>
+                  )}
+                  <div>
+                    <p className="mb-1 text-[11px] uppercase tracking-[0.18em] text-muted">
+                      Transcript
+                    </p>
+                    <p className="max-h-64 overflow-auto whitespace-pre-wrap leading-relaxed text-ink/80">
+                      {item.call.transcript || 'No transcript available.'}
+                    </p>
+                  </div>
+                </div>
+              </details>
+            )
+          )
         )}
       </div>
     </div>
