@@ -55,8 +55,18 @@ export async function POST(request: NextRequest) {
   if (!client) return NextResponse.json({ skipped: 'no pod for agent' })
 
   // Verify with the pod's own Retell key, falling back to the global key.
-  const key = client.retell_api_key || process.env.RETELL_API_KEY!
-  if (!verifyRetellSignature(raw, signature, key)) {
+  // Retell signs with the workspace API key holding the "webhook" badge
+  // (Retell dashboard → Settings → API Keys) — keep that badge on the key
+  // stored here or every delivery 401s.
+  const candidateKeys = [client.retell_api_key, process.env.RETELL_API_KEY].filter(
+    (k): k is string => Boolean(k)
+  )
+  if (!candidateKeys.some((k) => verifyRetellSignature(raw, signature, k))) {
+    console.error(
+      `[webhook] signature rejected: agent=${call.agent_id} event=${event} ` +
+        `header=${signature ? signature.slice(0, 24) + '…' : 'MISSING'} ` +
+        `keys_tried=${candidateKeys.map((k) => k.slice(0, 12)).join(',')}`
+    )
     return new NextResponse('invalid signature', { status: 401 })
   }
 
