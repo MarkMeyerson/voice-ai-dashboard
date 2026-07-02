@@ -1,58 +1,101 @@
 import Link from 'next/link'
 import { getProfile } from '@/lib/auth'
-import { Logo } from '@/components/brand'
 import { SignOut } from '@/components/sign-out'
+import { EnsoPulse, SherpaPeaks, SummitBackdrop } from '@/components/summit'
+import { DemoRequest } from '@/components/demo-request'
 
 export default async function Home() {
   const profile = await getProfile()
 
   return (
-    <main className="relative flex min-h-screen flex-col items-center justify-center bg-paper p-8 text-center">
-      <Logo className="mb-8 h-16 w-16" />
+    <main className="relative flex min-h-screen flex-col bg-paper">
+      <SummitBackdrop />
 
-      <p className="mb-3 text-[11px] uppercase tracking-[0.3em] text-muted">
-        Voice AI, resold simply
-      </p>
-      <h1 className="font-serif text-5xl font-semibold tracking-tight text-ink">
-        Voice<span className="text-seal">Desk</span>
-      </h1>
-      <p className="mt-5 max-w-md leading-relaxed text-muted">
-        Your clients see their calls. You set the rate. Billing runs itself.
-        Nothing more than it needs to be.
-      </p>
+      <div className="relative z-10 mx-auto flex w-full max-w-lg flex-1 flex-col items-center justify-center p-8 text-center">
+        <EnsoPulse className="h-[84px] w-[84px]" />
 
-      <div className="my-9 h-px w-16 bg-ink/20" />
+        <p className="mt-7 text-[11px] font-semibold uppercase tracking-[0.2em] text-muted">
+          The voice-agent portal
+        </p>
+        <h1 className="mt-3 font-serif text-5xl font-semibold tracking-tight">
+          <span className="text-ink">Voice</span>
+          <span className="text-seal">Desk</span>
+        </h1>
 
-      {profile ? (
-        <div className="flex flex-col items-center gap-5">
-          <p className="text-sm text-muted">
-            Signed in as <span className="text-ink">{profile.email}</span>
-            <span className="ml-2 border border-ink/15 px-2 py-0.5 text-[11px] uppercase tracking-wider text-muted">
-              {profile.role}
+        {/* The exchange — a call, mid-listen */}
+        <div className="mt-9 w-full max-w-sm">
+          <div className="border-r-2 border-seal/55 pr-3.5 text-right">
+            <span className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-muted">
+              Agent
             </span>
-          </p>
-          <div className="flex gap-3">
-            {profile.role === 'admin' && (
-              <Link
-                href="/admin"
-                className="group relative bg-ink px-6 py-3 text-sm font-medium tracking-wide text-card transition hover:bg-ink/90"
-              >
-                Enter admin
-                <span className="absolute right-4 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-seal" />
-              </Link>
-            )}
-            <SignOut className="border border-ink/20 bg-transparent px-6 py-3 text-sm font-medium tracking-wide text-ink transition hover:bg-card" />
+            <span className="mt-1 block font-serif text-[19px] italic leading-relaxed text-seal">
+              &ldquo;How can I help today?&rdquo;
+            </span>
+          </div>
+          <div className="mt-4 border-l-2 border-seal/35 pl-3.5 text-left">
+            <span className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-muted">
+              Caller
+            </span>
+            <span className="mt-1 block font-serif text-[19px] italic leading-relaxed text-ink">
+              &ldquo;Well, it&rsquo;s a long story.&rdquo;
+            </span>
+          </div>
+          <div className="mt-4 border-r-2 border-seal/55 pr-3.5 text-right">
+            <span className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-muted">
+              Agent
+            </span>
+            <span className="mt-1 block font-serif text-[19px] italic leading-relaxed text-seal">
+              &ldquo;I have time.&rdquo;
+            </span>
           </div>
         </div>
-      ) : (
-        <Link
-          href="/login"
-          className="group relative bg-ink px-8 py-3.5 text-sm font-medium tracking-wide text-card transition hover:bg-ink/90"
-        >
-          Sign in
-          <span className="absolute right-5 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-seal" />
-        </Link>
-      )}
+
+        <p className="mt-7 max-w-sm text-sm leading-relaxed text-muted">
+          Voice agents for reception, research, and intake. Every word kept.
+        </p>
+
+        <p className="mt-7 text-xs font-medium uppercase tracking-[0.16em] text-muted">
+          Reception <span className="px-1 text-seal">·</span> Interviews{' '}
+          <span className="px-1 text-seal">·</span> Intake
+        </p>
+
+        {profile ? (
+          <div className="mt-8 flex flex-col items-center gap-4">
+            <p className="text-[13px] text-muted">
+              Signed in as <span className="font-medium text-ink">{profile.email}</span>
+            </p>
+            <div className="flex gap-2.5">
+              {profile.role === 'admin' && (
+                <Link
+                  href="/admin"
+                  className="rounded-full bg-ink px-6 py-3 text-sm font-medium tracking-wide text-card transition hover:bg-ink/90"
+                >
+                  Enter admin
+                </Link>
+              )}
+              <SignOut className="rounded-full border border-ink/20 bg-transparent px-6 py-3 text-sm font-medium tracking-wide text-ink transition hover:bg-card" />
+            </div>
+          </div>
+        ) : (
+          <div className="mt-8 flex flex-col items-center gap-4">
+            <Link
+              href="/login"
+              className="rounded-full bg-ink px-8 py-3 text-sm font-medium tracking-wide text-card transition hover:bg-ink/90"
+            >
+              Sign in
+            </Link>
+          </div>
+        )}
+
+        <DemoRequest />
+      </div>
+
+      <footer className="relative z-10 pb-6 pt-4 text-center">
+        <span className="inline-flex items-center gap-2 text-xs font-medium text-navy opacity-85">
+          <SherpaPeaks className="h-2 w-3.5" />
+          A SherpaTech.AI property
+        </span>
+      </footer>
     </main>
   )
 }

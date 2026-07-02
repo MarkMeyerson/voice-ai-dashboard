@@ -16,6 +16,7 @@
   --color-ink: #211d15;         /* warm near-black */
   --color-muted: #837a66;       /* faded ink */
   --color-seal: #b3402a;        /* vermilion hanko accent — the pop */
+  --color-navy: #1B365D;        /* SherpaTech navy — parent-brand lockups */
 
   --font-sans: var(--font-geist-sans);
   --font-serif: var(--font-zen);
@@ -99,6 +100,14 @@ select:focus {
 /* thin zen rule */
 .hairline {
   border-color: color-mix(in srgb, var(--color-ink) 16%, transparent);
+}
+
+/* ── Ensō sound rings: slow breathing pulse ───────────────────────────── */
+@media (prefers-reduced-motion: no-preference) {
+  .enso-ring-1 { animation: enso-breathe-1 7s ease-in-out infinite; }
+  .enso-ring-2 { animation: enso-breathe-2 7s ease-in-out 1.2s infinite; }
+  @keyframes enso-breathe-1 { 0%, 100% { stroke-opacity: 0.30; } 50% { stroke-opacity: 0.44; } }
+  @keyframes enso-breathe-2 { 0%, 100% { stroke-opacity: 0.16; } 50% { stroke-opacity: 0.27; } }
 }
 
 /* subtle paper grain over the whole surface */
