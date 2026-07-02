@@ -111,6 +111,7 @@ function shell(opts: {
               </table>
               <p style="margin:16px 0 0;font-family:Helvetica,Arial,sans-serif;font-size:11px;line-height:1.6;color:#7c7461">
                 Sent by <strong style="color:#7c7461">Voice<span style="color:#b1442b">Desk</span></strong>
+                &nbsp;&middot;&nbsp; A <span style="color:#1B365D;font-weight:600">SherpaTech.AI</span> property
                 &nbsp;&middot;&nbsp; You're receiving this because you have an account with us.
               </p>
             </td>

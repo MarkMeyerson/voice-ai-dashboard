@@ -25,7 +25,7 @@ export function DeletePodButton({
           start(() => deleteClientPod(clientId))
         }
       }}
-      className="border border-red-300 px-4 py-2 text-sm text-red-600 transition hover:bg-red-50 disabled:opacity-60"
+      className="rounded-full border border-red-300 px-4 py-2 text-sm text-red-600 transition hover:bg-red-50 disabled:opacity-60"
     >
       {pending ? 'Deleting…' : 'Delete pod'}
     </button>

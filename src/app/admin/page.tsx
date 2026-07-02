@@ -55,7 +55,7 @@ export default async function AdminPage() {
         </div>
         <Link
           href="/admin/new"
-          className="group relative bg-ink px-4 py-2.5 text-sm tracking-wide text-card transition hover:bg-ink/90"
+          className="group relative rounded-full bg-ink px-5 py-2.5 text-sm tracking-wide text-card transition hover:bg-ink/90"
         >
           Add client
           <span className="absolute right-3 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-seal" />

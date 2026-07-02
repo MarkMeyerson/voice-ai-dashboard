@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useActionState } from 'react'
 import { requestReset, type ForgotState } from './actions'
 import { Logo } from '@/components/brand'
+import { PropertyFooter, SummitBackdrop } from '@/components/summit'
 
 export default function ForgotPasswordPage() {
   const [state, action, pending] = useActionState<ForgotState, FormData>(
@@ -12,8 +13,9 @@ export default function ForgotPasswordPage() {
   )
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-paper p-4">
-      <div className="w-full max-w-sm">
+    <main className="relative flex min-h-screen flex-col bg-paper">
+      <SummitBackdrop />
+      <div className="relative z-10 mx-auto flex w-full max-w-sm flex-1 flex-col justify-center p-4">
         <div className="mb-10 flex flex-col items-center gap-4 text-center">
           <Logo className="h-12 w-12" />
           <div className="space-y-1">
@@ -67,7 +69,7 @@ export default function ForgotPasswordPage() {
             <button
               type="submit"
               disabled={pending}
-              className="group relative w-full bg-ink px-3 py-3 text-sm font-medium tracking-wide text-card transition hover:bg-ink/90 disabled:opacity-60"
+              className="group relative w-full rounded-full bg-ink px-3 py-3 text-sm font-medium tracking-wide text-card transition hover:bg-ink/90 disabled:opacity-60"
             >
               {pending ? 'Sending…' : 'Send reset link'}
               <span className="absolute right-4 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-seal" />
@@ -81,6 +83,7 @@ export default function ForgotPasswordPage() {
           </Link>
         </p>
       </div>
+      <PropertyFooter />
     </main>
   )
 }

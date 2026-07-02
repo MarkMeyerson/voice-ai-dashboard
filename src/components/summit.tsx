@@ -83,6 +83,18 @@ export function EnsoPulse({ className }: { className?: string }) {
   )
 }
 
+// Parent-brand footer lockup, shared by every page.
+export function PropertyFooter({ className = '' }: { className?: string }) {
+  return (
+    <footer className={`relative z-10 pb-6 pt-4 text-center ${className}`}>
+      <span className="inline-flex items-center gap-2 text-xs font-medium text-navy opacity-85">
+        <SherpaPeaks className="h-2 w-3.5" />
+        A SherpaTech.AI property
+      </span>
+    </footer>
+  )
+}
+
 // Small SherpaTech peaks glyph for the parent-brand footer lockup.
 export function SherpaPeaks({ className }: { className?: string }) {
   return (

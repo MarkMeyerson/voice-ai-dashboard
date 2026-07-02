@@ -62,7 +62,7 @@ export function PaymentMethodCard({
       <form action={action}>
         <SubmitButton
           pendingText="Opening secure checkout…"
-          className="group relative bg-ink px-5 py-2.5 text-sm tracking-wide text-card transition hover:bg-ink/90 disabled:opacity-60"
+          className="group relative rounded-full bg-ink px-5 py-2.5 text-sm tracking-wide text-card transition hover:bg-ink/90 disabled:opacity-60"
         >
           {card ? 'Update card' : 'Add payment method'}
           <span className="absolute right-3 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-seal" />

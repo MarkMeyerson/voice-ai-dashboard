@@ -9,6 +9,7 @@ import { PaymentMethodCard } from '@/components/payment-method'
 import PortalCharts from '@/components/portal-charts'
 import { SyncButton } from '@/components/sync-button'
 import { CallLog, type CallRow } from '@/components/call-log'
+import { PropertyFooter } from '@/components/summit'
 
 export default async function ClientDashboard({
   params,
@@ -77,7 +78,7 @@ export default async function ClientDashboard({
           >
             Settings
           </Link>
-          <SignOut className="border border-ink/20 px-3.5 py-1.5 text-sm tracking-wide text-ink transition hover:bg-card" />
+          <SignOut className="rounded-full border border-ink/20 px-4 py-1.5 text-sm tracking-wide text-ink transition hover:bg-card" />
         </div>
       </header>
 
@@ -110,6 +111,7 @@ export default async function ClientDashboard({
         </div>
         <CallLog calls={calls} billingStartsAt={billingStartsAt} />
       </div>
+      <PropertyFooter />
     </main>
   )
 }

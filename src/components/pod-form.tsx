@@ -484,7 +484,7 @@ export function PodForm(props: PodFormProps) {
       <div className="pt-4">
         <SubmitButton
           pendingText={mode === 'create' ? 'Creating…' : 'Saving…'}
-          className="relative flex items-center gap-3 bg-ink px-5 py-3 text-sm text-card transition-opacity hover:opacity-90 disabled:opacity-50"
+          className="relative flex items-center gap-3 rounded-full bg-ink px-6 py-3 text-sm text-card transition-opacity hover:opacity-90 disabled:opacity-50"
         >
           <span
             className="h-1.5 w-1.5 shrink-0 rounded-full bg-seal"

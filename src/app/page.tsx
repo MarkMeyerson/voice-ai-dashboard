@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { getProfile } from '@/lib/auth'
 import { SignOut } from '@/components/sign-out'
-import { EnsoPulse, SherpaPeaks, SummitBackdrop } from '@/components/summit'
+import { EnsoPulse, PropertyFooter, SummitBackdrop } from '@/components/summit'
 import { DemoRequest } from '@/components/demo-request'
 
 export default async function Home() {
@@ -90,12 +90,7 @@ export default async function Home() {
         <DemoRequest />
       </div>
 
-      <footer className="relative z-10 pb-6 pt-4 text-center">
-        <span className="inline-flex items-center gap-2 text-xs font-medium text-navy opacity-85">
-          <SherpaPeaks className="h-2 w-3.5" />
-          A SherpaTech.AI property
-        </span>
-      </footer>
+      <PropertyFooter />
     </main>
   )
 }

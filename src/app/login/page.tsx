@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useActionState } from 'react'
 import { login, type LoginState } from './actions'
 import { Logo } from '@/components/brand'
+import { PropertyFooter, SummitBackdrop } from '@/components/summit'
 
 export default function LoginPage() {
   const [state, action, pending] = useActionState<LoginState, FormData>(
@@ -12,8 +13,9 @@ export default function LoginPage() {
   )
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center bg-paper p-4">
-      <div className="w-full max-w-sm">
+    <main className="relative flex min-h-screen flex-col bg-paper">
+      <SummitBackdrop />
+      <div className="relative z-10 mx-auto flex w-full max-w-sm flex-1 flex-col justify-center p-4">
         <div className="mb-10 flex flex-col items-center gap-4 text-center">
           <Logo className="h-12 w-12" />
           <div className="space-y-1">
@@ -71,7 +73,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={pending}
-            className="group relative w-full overflow-hidden bg-ink px-3 py-3 text-sm font-medium tracking-wide text-card transition hover:bg-ink/90 disabled:opacity-60"
+            className="group relative w-full overflow-hidden rounded-full bg-ink px-3 py-3 text-sm font-medium tracking-wide text-card transition hover:bg-ink/90 disabled:opacity-60"
           >
             {pending ? 'Signing in…' : 'Sign in'}
             <span className="absolute right-4 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-seal" />
@@ -82,6 +84,7 @@ export default function LoginPage() {
           Each client sees only their own calls
         </p>
       </div>
+      <PropertyFooter />
     </main>
   )
 }

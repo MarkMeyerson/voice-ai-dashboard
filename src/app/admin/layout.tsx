@@ -1,6 +1,7 @@
 import { Wordmark } from '@/components/brand'
 import { AdminNav } from '@/components/admin-nav'
 import { SignOut } from '@/components/sign-out'
+import { PropertyFooter } from '@/components/summit'
 import { getProfile } from '@/lib/auth'
 
 export default async function AdminLayout({
@@ -38,10 +39,11 @@ export default async function AdminLayout({
             <span className="hidden text-sm text-muted sm:inline">
               {profile?.email}
             </span>
-            <SignOut className="border border-ink/20 px-3.5 py-1.5 text-sm tracking-wide text-ink transition hover:bg-card" />
+            <SignOut className="rounded-full border border-ink/20 px-4 py-1.5 text-sm tracking-wide text-ink transition hover:bg-card" />
           </div>
         </header>
         <div className="flex-1 p-7">{children}</div>
+        <PropertyFooter />
       </div>
     </div>
   )

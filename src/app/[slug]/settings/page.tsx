@@ -46,7 +46,7 @@ export default async function ClientSettings({
           <Link href={`/${slug}`} className="text-sm text-muted transition hover:text-ink">
             ← Dashboard
           </Link>
-          <SignOut className="border border-ink/20 px-3.5 py-1.5 text-sm tracking-wide text-ink transition hover:bg-card" />
+          <SignOut className="rounded-full border border-ink/20 px-4 py-1.5 text-sm tracking-wide text-ink transition hover:bg-card" />
         </div>
       </header>
 
