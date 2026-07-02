@@ -26,12 +26,17 @@ export default async function ClientDashboard({
   const { data: client } = await supabase
     .from('clients')
     .select(
-      'id, name, slug, stripe_customer_id, billing_mode, rate_per_minute_cents, monthly_price_cents, created_at'
+      'id, name, slug, stripe_customer_id, billing_mode, rate_per_minute_cents, monthly_price_cents, created_at, billing_starts_at'
     )
     .eq('slug', slug)
     .maybeSingle()
 
   if (!client) redirect(profile.role === 'admin' ? '/admin' : '/')
+
+  // Pods without Stripe billing (archives) get no divider and no exclusions.
+  const billingStartsAt = client.stripe_customer_id
+    ? (client.billing_starts_at ?? client.created_at)
+    : undefined
 
   const card = client.stripe_customer_id
     ? await getDefaultPaymentMethod(client.stripe_customer_id).catch(() => null)
@@ -92,7 +97,7 @@ export default async function ClientDashboard({
             Dashboard
           </h1>
         </div>
-        <PortalCharts calls={calls} />
+        <PortalCharts calls={calls} billingStartsAt={billingStartsAt} />
 
         <div className="flex items-end justify-between pt-2">
           <div>
@@ -103,7 +108,7 @@ export default async function ClientDashboard({
           </div>
           <SyncButton slug={slug} />
         </div>
-        <CallLog calls={calls} billingStartsAt={client.created_at} />
+        <CallLog calls={calls} billingStartsAt={billingStartsAt} />
       </div>
     </main>
   )

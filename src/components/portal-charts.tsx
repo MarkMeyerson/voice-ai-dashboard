@@ -189,17 +189,30 @@ function SentimentBar({
 
 // ─── main component ──────────────────────────────────────────────────────────
 
-export default function PortalCharts({ calls }: { calls: CallRow[] }) {
+export default function PortalCharts({
+  calls,
+  billingStartsAt,
+}: {
+  calls: CallRow[]
+  billingStartsAt?: string
+}) {
   const [activeMetric, setActiveMetric] = useState<MetricKey>('calls')
   const [range, setRange] = useState<RangeKey>('all')
 
+  // Pre-billing test calls are excluded from every chart and total; they
+  // remain visible only in the call log below the divider.
+  const billableCalls = useMemo(() => {
+    if (!billingStartsAt) return calls
+    return calls.filter((c) => c.started_at && c.started_at >= billingStartsAt)
+  }, [calls, billingStartsAt])
+
   // Filter to the selected time range (relative to now).
   const scopedCalls = useMemo(() => {
-    if (range === 'all') return calls
+    if (range === 'all') return billableCalls
     const days = range === 'week' ? 7 : range === 'month' ? 30 : 365
     const cutoff = Date.now() - days * 86400000
-    return calls.filter((c) => c.started_at && Date.parse(c.started_at) >= cutoff)
-  }, [calls, range])
+    return billableCalls.filter((c) => c.started_at && Date.parse(c.started_at) >= cutoff)
+  }, [billableCalls, range])
 
   // ── overview totals ──────────────────────────────────────────────────────
   const totals = useMemo(() => {
@@ -256,12 +269,12 @@ export default function PortalCharts({ calls }: { calls: CallRow[] }) {
   ]
 
   // ── empty state ──────────────────────────────────────────────────────────
-  if (calls.length === 0) {
+  if (billableCalls.length === 0) {
     return (
       <div className="border border-ink/15 bg-card px-8 py-16 text-center">
         <p className="font-serif text-xl text-ink">No data yet</p>
         <p className="mt-2 text-sm text-muted">
-          Charts will appear once your first calls are recorded.
+          Charts will appear once your first billable calls are recorded.
         </p>
       </div>
     )

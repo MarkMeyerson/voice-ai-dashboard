@@ -100,11 +100,16 @@ export function CallLog({ calls, billingStartsAt }: { calls: CallRow[]; billingS
     return result
   }, [scoped, billingStartsAt, sort])
 
+  // Aggregates count only billable calls — test calls before billingStartsAt
+  // stay browsable in the log but never touch the numbers.
   const stats = useMemo(() => {
-    const billed = scoped.reduce((s, c) => s + Number(c.billed_cents), 0)
-    const minutes = scoped.reduce((s, c) => s + c.duration_seconds / 60, 0)
-    return { billed, minutes, count: scoped.length }
-  }, [scoped])
+    const billable = billingStartsAt
+      ? scoped.filter((c) => c.started_at && c.started_at >= billingStartsAt)
+      : scoped
+    const billed = billable.reduce((s, c) => s + Number(c.billed_cents), 0)
+    const minutes = billable.reduce((s, c) => s + c.duration_seconds / 60, 0)
+    return { billed, minutes, count: billable.length }
+  }, [scoped, billingStartsAt])
 
   return (
     <div className="space-y-6">
@@ -160,19 +165,28 @@ export function CallLog({ calls, billingStartsAt }: { calls: CallRow[]; billingS
               <div key="billing-divider" className="relative flex items-center gap-4 border-b border-ink/10 px-6 py-2.5">
                 <div className="h-px flex-1 bg-seal/40" />
                 <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.2em] text-seal">
-                  Billing starts below this line
+                  {sort === 'oldest'
+                    ? 'Billing starts below this line · older calls above are tests'
+                    : 'Billing starts above this line · calls below are tests'}
                 </span>
                 <div className="h-px flex-1 bg-seal/40" />
               </div>
             ) : (
+              (() => {
+                const isTest =
+                  !!billingStartsAt &&
+                  (!item.call.started_at || item.call.started_at < billingStartsAt)
+                return (
               <details key={item.call.id} className="group border-b border-ink/10 last:border-0">
-                <summary className="grid cursor-pointer grid-cols-[1.3fr_1.1fr_0.6fr_0.7fr_0.9fr] items-center gap-4 px-6 py-3.5 text-sm marker:content-none hover:bg-ink/[0.02]">
+                <summary className={`grid cursor-pointer grid-cols-[1.3fr_1.1fr_0.6fr_0.7fr_0.9fr] items-center gap-4 px-6 py-3.5 text-sm marker:content-none hover:bg-ink/[0.02] ${isTest ? 'opacity-55' : ''}`}>
                   <span className="text-ink">
                     {item.call.started_at ? new Date(item.call.started_at).toLocaleString() : '—'}
                   </span>
                   <span className="font-mono text-[13px] text-ink">{phone(item.call.from_number)}</span>
                   <span className="text-muted">{mmss(item.call.duration_seconds)}</span>
-                  <span className="text-ink">{money(Number(item.call.billed_cents))}</span>
+                  <span className="text-ink">
+                    {isTest ? <span className="text-[11px] uppercase tracking-wider text-muted">test</span> : money(Number(item.call.billed_cents))}
+                  </span>
                   <span className="flex items-center gap-2 text-muted">
                     <span className="h-1.5 w-1.5 rounded-full bg-seal" />
                     {item.call.sentiment || '—'}
@@ -204,6 +218,8 @@ export function CallLog({ calls, billingStartsAt }: { calls: CallRow[]; billingS
                   </div>
                 </div>
               </details>
+                )
+              })()
             )
           )
         )}
