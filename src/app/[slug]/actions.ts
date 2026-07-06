@@ -58,14 +58,15 @@ export async function syncCalls(slug: string) {
   const key = client.retell_api_key || process.env.RETELL_API_KEY!
   for (const agentId of agentIds) {
     try {
-      const res = await fetch('https://api.retellai.com/v2/list-calls', {
+      const res = await fetch('https://api.retellai.com/v3/list-calls', {
         method: 'POST',
         headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ filter_criteria: { agent_id: [agentId] }, limit: 100 }),
         cache: 'no-store',
       })
       if (!res.ok) continue
-      const calls = (await res.json()) as RetellCall[]
+      // v3 wraps the array: { items, pagination_key, has_more }
+      const { items: calls = [] } = (await res.json()) as { items?: RetellCall[] }
       const rows = calls.map((c) => callToRow(c, client.id, client.rate_per_minute_cents))
       if (rows.length) {
         await admin.from('calls').upsert(rows, { onConflict: 'retell_call_id' })
