@@ -11,7 +11,7 @@ import {
   createMonthlyPrice,
   createSubscription,
 } from '@/lib/stripe'
-import { callToRow, type RetellCall } from '@/lib/retell'
+import { callToRow, listAgentCalls } from '@/lib/retell'
 import { sendInviteEmail } from '@/lib/email'
 
 // Delete a pod and everything tied to it (calls, agents, invoices, usage all
@@ -310,27 +310,15 @@ export async function createClientPod(formData: FormData): Promise<void> {
   if (retell_api_key) {
     for (const a of agents) {
       try {
-        const res = await fetch('https://api.retellai.com/v2/list-calls', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${retell_api_key}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            filter_criteria: { agent_id: [a.id] },
-            limit: 50,
-          }),
-        })
-        if (res.ok) {
-          const calls: RetellCall[] = await res.json()
-          if (calls.length) {
-            const rows = calls.map((c) =>
-              callToRow(c, clientId, rate_per_minute_cents)
-            )
-            await admin
-              .from('calls')
-              .upsert(rows, { onConflict: 'retell_call_id' })
-          }
+        // Use the pod's own Retell key, not the global env var.
+        const calls = await listAgentCalls(a.id, 50, retell_api_key)
+        if (calls.length) {
+          const rows = calls.map((c) =>
+            callToRow(c, clientId, rate_per_minute_cents)
+          )
+          await admin
+            .from('calls')
+            .upsert(rows, { onConflict: 'retell_call_id' })
         }
       } catch (e) {
         console.error(`backfill failed for agent ${a.id}`, e)

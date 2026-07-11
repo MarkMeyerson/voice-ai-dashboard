@@ -49,9 +49,9 @@ export type RetellCall = {
 }
 
 const BASE = 'https://api.retellai.com'
-function authHeaders() {
+function authHeaders(apiKey?: string) {
   return {
-    Authorization: `Bearer ${process.env.RETELL_API_KEY}`,
+    Authorization: `Bearer ${apiKey ?? process.env.RETELL_API_KEY}`,
     'Content-Type': 'application/json',
   }
 }
@@ -68,14 +68,20 @@ export async function setAgentWebhook(agentId: string, webhookUrl: string) {
 }
 
 // Pull recent calls for an agent (used to backfill a new pod).
-export async function listAgentCalls(agentId: string, limit = 50): Promise<RetellCall[]> {
-  const res = await fetch(`${BASE}/v2/list-calls`, {
+export async function listAgentCalls(
+  agentId: string,
+  limit = 50,
+  apiKey?: string
+): Promise<RetellCall[]> {
+  const res = await fetch(`${BASE}/v3/list-calls`, {
     method: 'POST',
-    headers: authHeaders(),
+    headers: authHeaders(apiKey),
     body: JSON.stringify({ filter_criteria: { agent_id: [agentId] }, limit }),
   })
   if (!res.ok) throw new Error(`listAgentCalls ${res.status}`)
-  return res.json()
+  // v3 wraps the array: { items, pagination_key, has_more }
+  const data = (await res.json()) as { items?: RetellCall[] }
+  return data.items ?? []
 }
 
 // The slice of a Retell chat object we care about (chat agents fire

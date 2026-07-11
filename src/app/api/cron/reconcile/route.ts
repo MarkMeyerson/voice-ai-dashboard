@@ -49,14 +49,16 @@ export async function GET(request: NextRequest) {
     for (const agentId of agentIds) {
       let calls: RetellCall[] = []
       try {
-        const res = await fetch('https://api.retellai.com/v2/list-calls', {
+        const res = await fetch('https://api.retellai.com/v3/list-calls', {
           method: 'POST',
           headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ filter_criteria: { agent_id: [agentId] }, limit: 100 }),
           cache: 'no-store',
         })
         if (!res.ok) continue
-        calls = ((await res.json()) as RetellCall[]).filter(
+        // v3 wraps the array: { items, pagination_key, has_more }
+        const { items = [] } = (await res.json()) as { items?: RetellCall[] }
+        calls = items.filter(
           (c) => c.call_status === 'ended' && (c.start_timestamp ?? 0) >= cutoff
         )
       } catch {
