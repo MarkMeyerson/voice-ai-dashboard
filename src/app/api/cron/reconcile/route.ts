@@ -34,10 +34,13 @@ export async function GET(request: NextRequest) {
   for (const client of clients ?? []) {
     const { data: pa } = await supabase
       .from('pod_agents')
-      .select('retell_agent_id')
+      .select('retell_agent_id, label')
       .eq('client_id', client.id)
     const agentIds = new Set<string>((pa ?? []).map((a) => a.retell_agent_id))
     if (client.retell_agent_id) agentIds.add(client.retell_agent_id)
+    const labelByAgent = new Map<string, string | null>(
+      (pa ?? []).map((a) => [a.retell_agent_id, a.label ?? null])
+    )
     if (agentIds.size === 0) continue
 
     const key = client.retell_api_key || process.env.RETELL_API_KEY!
@@ -69,7 +72,10 @@ export async function GET(request: NextRequest) {
 
       for (const call of calls) {
         const known = byId.get(call.call_id)
-        const row = callToRow(call, client.id, client.rate_per_minute_cents)
+        const row = {
+          ...callToRow(call, client.id, client.rate_per_minute_cents),
+          agent_label: labelByAgent.get(agentId) ?? null,
+        }
 
         if (!known) {
           const { error } = await supabase
@@ -140,7 +146,10 @@ export async function GET(request: NextRequest) {
 
         for (const c of chats) {
           const known = chatById.get(c.chat_id)
-          const row = chatToRow(c, client.id, client.chat_rate_per_message_cents ?? 0)
+          const row = {
+            ...chatToRow(c, client.id, client.chat_rate_per_message_cents ?? 0),
+            agent_label: labelByAgent.get(c.agent_id) ?? null,
+          }
 
           if (!known) {
             const { error } = await supabase

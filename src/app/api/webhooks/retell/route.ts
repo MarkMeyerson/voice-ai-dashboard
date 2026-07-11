@@ -47,11 +47,14 @@ export async function POST(request: NextRequest) {
 
   const { data: pa } = await supabase
     .from('pod_agents')
-    .select('client_id')
+    .select('client_id, label')
     .eq('retell_agent_id', agentId)
     .maybeSingle()
 
   const clientId = pa?.client_id ?? null
+  // Optional per-agent label ("Personal assistant", "Website chat") shown on
+  // the dashboard and in email subjects to tell agents on one pod apart.
+  const agentLabel: string | null = pa?.label ?? null
   const q = supabase
     .from('clients')
     .select(
@@ -86,7 +89,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ignored: event })
     }
 
-    const row = chatToRow(chat, client.id, client.chat_rate_per_message_cents ?? 0)
+    const row = {
+      ...chatToRow(chat, client.id, client.chat_rate_per_message_cents ?? 0),
+      agent_label: agentLabel,
+    }
     const { data: upserted, error } = await supabase
       .from('calls')
       .upsert(row, { onConflict: 'retell_call_id' })
@@ -157,7 +163,7 @@ export async function POST(request: NextRequest) {
         if (adminEmail && adminEmail !== client.notification_email) toAddresses.push(adminEmail)
         await sendChatSummaryEmail({
           to: toAddresses.length === 1 ? toAddresses[0] : toAddresses,
-          clientName: client.name,
+          clientName: agentLabel ? `${client.name} · ${agentLabel}` : client.name,
           chatId: chat.chat_id,
           messageCount: row.message_count,
           durationSeconds: row.duration_seconds,
@@ -186,7 +192,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ignored: event })
   }
 
-  const row = callToRow(call, client.id, client.rate_per_minute_cents)
+  const row = {
+    ...callToRow(call, client.id, client.rate_per_minute_cents),
+    agent_label: agentLabel,
+  }
   const { data: upserted, error } = await supabase
     .from('calls')
     .upsert(row, { onConflict: 'retell_call_id' })
@@ -251,7 +260,7 @@ export async function POST(request: NextRequest) {
       if (adminEmail && adminEmail !== client.notification_email) toAddresses.push(adminEmail)
       await sendCallSummaryEmail({
         to: toAddresses.length === 1 ? toAddresses[0] : toAddresses,
-        clientName: client.name,
+        clientName: agentLabel ? `${client.name} · ${agentLabel}` : client.name,
         callId: call.call_id,
         durationSeconds: row.duration_seconds,
         sentiment: call.call_analysis?.user_sentiment ?? null,

@@ -15,6 +15,7 @@ export type CallRow = {
   recording_url: string | null
   transcript: string | null
   message_count?: number | null
+  agent_label?: string | null
 }
 
 // Chat sessions live in the same table as calls; call_type tells them apart.
@@ -67,7 +68,7 @@ export function CallLog({ calls, billingStartsAt }: { calls: CallRow[]; billingS
     const q = query.trim().toLowerCase()
     if (q) {
       rows = rows.filter((c) =>
-        [c.transcript, c.sentiment, c.disconnect_reason, c.retell_call_id, c.call_type, c.from_number]
+        [c.transcript, c.sentiment, c.disconnect_reason, c.retell_call_id, c.call_type, c.from_number, c.agent_label]
           .filter(Boolean)
           .some((f) => String(f).toLowerCase().includes(q))
       )
@@ -191,10 +192,17 @@ export function CallLog({ calls, billingStartsAt }: { calls: CallRow[]; billingS
                   {isChatRow(item.call) ? (
                     <span className="flex items-center gap-1.5 text-[13px] text-muted">
                       <span className="inline-block h-1.5 w-1.5 rounded-full border border-seal/60" />
-                      Website chat
+                      {item.call.agent_label || 'Website chat'}
                     </span>
                   ) : (
-                    <span className="font-mono text-[13px] text-ink">{phone(item.call.from_number)}</span>
+                    <span>
+                      <span className="font-mono text-[13px] text-ink">{phone(item.call.from_number)}</span>
+                      {item.call.agent_label && (
+                        <span className="mt-0.5 block text-[10px] font-medium uppercase tracking-[0.14em] text-seal/80">
+                          {item.call.agent_label}
+                        </span>
+                      )}
+                    </span>
                   )}
                   <span className="text-muted">
                     {isChatRow(item.call)
