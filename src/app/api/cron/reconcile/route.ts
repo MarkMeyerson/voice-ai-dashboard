@@ -4,16 +4,25 @@ import { callToRow, chatToRow, listChats, type RetellCall } from '@/lib/retell'
 import { ensureClientFolder, uploadTranscriptToDrive } from '@/lib/drive'
 import { sendCallSummaryEmail, sendChatSummaryEmail, sendEmail } from '@/lib/email'
 
-export const maxDuration = 60
+export const maxDuration = 120
 
-// Safety net for webhook failures (Vercel Cron, daily): pulls recent calls
-// from Retell (source of truth) for every pod, upserts anything the webhook
-// missed, delivers the summary emails those calls should have produced, and
-// alerts the admin that recovery happened so the root cause gets looked at.
+// Safety net for webhook failures (Vercel Cron, every 15 min on Pro): pulls
+// recent calls from Retell (source of truth) for every pod, upserts anything
+// the webhook missed, delivers the summary emails those calls should have
+// produced, and alerts the admin that recovery happened so the root cause
+// gets looked at. Lookback stays generous — recovery is idempotent.
 const LOOKBACK_MS = 26 * 60 * 60 * 1000
 // Recovery emails only for calls with an actual conversation; the live
 // webhook path is untouched by this floor.
 const MIN_EMAIL_SECONDS = 5
+// Don't recovery-email conversations that ended moments ago — their
+// call_analyzed/chat_analyzed webhook (which sends the real email) may still
+// be in flight. Prevents double emails at 15-minute cron frequency.
+const EMAIL_GRACE_MS = 15 * 60 * 1000
+function endedLongAgo(startedAt: string | null, durationSeconds: number) {
+  if (!startedAt) return true
+  return Date.parse(startedAt) + durationSeconds * 1000 < Date.now() - EMAIL_GRACE_MS
+}
 
 export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET
@@ -92,7 +101,8 @@ export async function GET(request: NextRequest) {
           client.notification_email &&
           !known?.email_sent_at &&
           row.transcript &&
-          row.duration_seconds >= MIN_EMAIL_SECONDS
+          row.duration_seconds >= MIN_EMAIL_SECONDS &&
+          endedLongAgo(row.started_at, row.duration_seconds)
         if (!needsEmail) continue
 
         try {
@@ -165,7 +175,8 @@ export async function GET(request: NextRequest) {
             client.notification_email &&
             !known?.email_sent_at &&
             row.transcript &&
-            row.message_count >= 2
+            row.message_count >= 2 &&
+            endedLongAgo(row.started_at, row.duration_seconds)
           if (!needsEmail) continue
 
           try {
