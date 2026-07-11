@@ -46,7 +46,7 @@ export default async function ClientDashboard({
   const { data } = await supabase
     .from('calls')
     .select(
-      'id, retell_call_id, call_type, started_at, duration_seconds, billed_cents, sentiment, disconnect_reason, recording_url, transcript, from_number'
+      'id, retell_call_id, call_type, started_at, duration_seconds, billed_cents, sentiment, disconnect_reason, recording_url, transcript, from_number, message_count'
     )
     .eq('client_id', client.id)
     .order('started_at', { ascending: false, nullsFirst: false })

@@ -14,6 +14,12 @@ export type CallRow = {
   disconnect_reason: string | null
   recording_url: string | null
   transcript: string | null
+  message_count?: number | null
+}
+
+// Chat sessions live in the same table as calls; call_type tells them apart.
+export function isChatRow(c: CallRow) {
+  return c.call_type === 'chat' || c.call_type === 'api_chat' || c.call_type === 'sms_chat'
 }
 
 function money(cents: number) {
@@ -182,8 +188,19 @@ export function CallLog({ calls, billingStartsAt }: { calls: CallRow[]; billingS
                   <span className="text-ink">
                     {item.call.started_at ? new Date(item.call.started_at).toLocaleString() : '—'}
                   </span>
-                  <span className="font-mono text-[13px] text-ink">{phone(item.call.from_number)}</span>
-                  <span className="text-muted">{mmss(item.call.duration_seconds)}</span>
+                  {isChatRow(item.call) ? (
+                    <span className="flex items-center gap-1.5 text-[13px] text-muted">
+                      <span className="inline-block h-1.5 w-1.5 rounded-full border border-seal/60" />
+                      Website chat
+                    </span>
+                  ) : (
+                    <span className="font-mono text-[13px] text-ink">{phone(item.call.from_number)}</span>
+                  )}
+                  <span className="text-muted">
+                    {isChatRow(item.call)
+                      ? `${item.call.message_count ?? 0} msgs`
+                      : mmss(item.call.duration_seconds)}
+                  </span>
                   <span className="text-ink">
                     {isTest ? <span className="text-[11px] uppercase tracking-wider text-muted">test</span> : money(Number(item.call.billed_cents))}
                   </span>

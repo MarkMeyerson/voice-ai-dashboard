@@ -141,3 +141,21 @@ export async function reportUsage(args: {
     },
   })
 }
+
+// Chat billing: one unit per agent message, on its own meter
+// (meter mtr_61V1TATjzeboyor5I41FQqJQWFORDBz6, price $0.05/msg on Campbell).
+const CHAT_METER_EVENT =
+  process.env.STRIPE_CHAT_METER_EVENT || 'voicedesk_chat_messages'
+
+export async function reportChatUsage(args: {
+  stripeCustomerId: string
+  messages: number
+}) {
+  return stripe.billing.meterEvents.create({
+    event_name: CHAT_METER_EVENT,
+    payload: {
+      stripe_customer_id: args.stripeCustomerId,
+      value: String(args.messages),
+    },
+  })
+}

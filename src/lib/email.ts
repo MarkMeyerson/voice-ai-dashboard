@@ -250,6 +250,89 @@ export async function sendCallSummaryEmail(args: {
   })
 }
 
+// Per-chat summary sent to the client's notification email — the chat twin
+// of sendCallSummaryEmail. Includes Retell's own chat summary when present.
+export async function sendChatSummaryEmail(args: {
+  to: string | string[]
+  clientName: string
+  chatId: string
+  messageCount: number
+  durationSeconds: number
+  sentiment: string | null
+  summary: string | null
+  transcript: string | null
+  driveLink: string | null
+  dashboardUrl: string
+}) {
+  const mins = Math.floor(args.durationSeconds / 60)
+  const secs = args.durationSeconds % 60
+  const duration =
+    args.durationSeconds > 0 ? (mins > 0 ? `${mins}m ${secs}s` : `${secs}s`) : '—'
+
+  const sentimentColor =
+    args.sentiment === 'Positive'
+      ? '#2e7d32'
+      : args.sentiment === 'Negative'
+        ? '#c62828'
+        : '#555'
+  const sentimentBg =
+    args.sentiment === 'Positive'
+      ? '#e8f5e9'
+      : args.sentiment === 'Negative'
+        ? '#fce4ec'
+        : '#f5f5f5'
+  const sentimentBadge = args.sentiment
+    ? `<span style="display:inline-block;padding:2px 8px;font-size:11px;font-family:Helvetica,Arial,sans-serif;letter-spacing:.06em;text-transform:uppercase;background:${sentimentBg};color:${sentimentColor}">${args.sentiment}</span>`
+    : '—'
+
+  const esc = (s: string) => s.replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const transcriptPreview = args.transcript
+    ? esc(args.transcript.slice(0, 700)) + (args.transcript.length > 700 ? '…' : '')
+    : null
+
+  const bodyHtml = `
+    <table style="width:100%;border-collapse:collapse;margin-bottom:8px">
+      <tr>
+        <td style="padding:7px 0;font-family:Helvetica,Arial,sans-serif;font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:#7c7461;border-bottom:1px solid rgba(32,29,22,.08);width:110px">Messages</td>
+        <td style="padding:7px 0;font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#201d16;border-bottom:1px solid rgba(32,29,22,.08)">${args.messageCount}</td>
+      </tr>
+      <tr>
+        <td style="padding:7px 0;font-family:Helvetica,Arial,sans-serif;font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:#7c7461;border-bottom:1px solid rgba(32,29,22,.08)">Duration</td>
+        <td style="padding:7px 0;font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#201d16;border-bottom:1px solid rgba(32,29,22,.08)">${duration}</td>
+      </tr>
+      <tr>
+        <td style="padding:7px 0;font-family:Helvetica,Arial,sans-serif;font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:#7c7461">Sentiment</td>
+        <td style="padding:7px 0">${sentimentBadge}</td>
+      </tr>
+    </table>
+    ${
+      args.summary
+        ? `<p style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.7;color:#3a362c;margin:16px 0 0"><strong>Summary:</strong> ${esc(args.summary)}</p>`
+        : ''
+    }
+    ${
+      transcriptPreview
+        ? `<p style="font-family:Georgia,'Times New Roman',serif;font-size:13px;line-height:1.75;color:#5a5649;font-style:italic;margin:20px 0 0;padding:14px 16px;background:rgba(32,29,22,.04);border-left:2px solid rgba(177,68,43,.35)">${transcriptPreview}</p>`
+        : ''
+    }
+    ${
+      args.driveLink
+        ? `<p style="margin:20px 0 0;font-family:Helvetica,Arial,sans-serif;font-size:13px"><a href="${args.driveLink}" style="color:#b1442b;text-decoration:none;font-weight:600">View full transcript</a></p>`
+        : ''
+    }
+  `
+
+  return sendEmail({
+    to: args.to,
+    subject: `Chat summary — ${args.clientName}`,
+    heading: 'New website chat',
+    intro: `A chat just ended on your ${args.clientName} assistant.`,
+    bodyHtml,
+    ctaText: 'Open dashboard',
+    ctaUrl: args.dashboardUrl,
+  })
+}
+
 // Client account invite (set password + first sign-in).
 export async function sendInviteEmail(args: {
   to: string
