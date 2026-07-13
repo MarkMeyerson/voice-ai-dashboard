@@ -78,6 +78,31 @@ create table public.usage_events (
   reported_at           timestamptz not null default now()
 );
 
+-- ----- 6. pod_agents (a pod can own MANY Retell agents) ------
+--  Maps retell_agent_id -> pod. The webhook resolves calls through
+--  this first, falling back to clients.retell_agent_id (legacy).
+create table if not exists public.pod_agents (
+  id               uuid primary key default gen_random_uuid(),
+  client_id        uuid not null references public.clients (id) on delete cascade,
+  retell_agent_id  text not null unique,
+  agent_name       text,
+  label            text,                              -- per-agent display label in the call log
+  created_at       timestamptz not null default now()
+);
+
+-- ----- 7. columns added after the original freeze -------------
+--  Idempotent: safe to run on an existing database.
+alter table public.clients
+  add column if not exists retell_api_key               text,     -- per-pod Retell key (fallback: env RETELL_API_KEY)
+  add column if not exists chat_rate_per_message_cents  integer not null default 0,
+  add column if not exists notification_email           text,     -- call/chat summary emails go here
+  add column if not exists drive_folder_id              text;     -- Google Drive folder for transcripts
+
+alter table public.calls
+  add column if not exists agent_label    text,        -- which of the pod's agents took it
+  add column if not exists message_count  integer,     -- chat sessions: number of messages
+  add column if not exists email_sent_at  timestamptz; -- summary-email idempotency marker
+
 -- ============================================================
 --  ROW-LEVEL SECURITY  — this is what walls each client off.
 --  security-definer helpers avoid recursive policy checks.
@@ -97,6 +122,7 @@ alter table public.profiles     enable row level security;
 alter table public.calls        enable row level security;
 alter table public.invoices     enable row level security;
 alter table public.usage_events enable row level security;
+alter table public.pod_agents   enable row level security;
 
 -- admins: full access to everything
 create policy admin_all_clients      on public.clients      for all using (public.is_admin()) with check (public.is_admin());
@@ -104,12 +130,14 @@ create policy admin_all_profiles     on public.profiles     for all using (publi
 create policy admin_all_calls        on public.calls        for all using (public.is_admin()) with check (public.is_admin());
 create policy admin_all_invoices     on public.invoices     for all using (public.is_admin()) with check (public.is_admin());
 create policy admin_all_usage        on public.usage_events for all using (public.is_admin()) with check (public.is_admin());
+create policy admin_all_pod_agents   on public.pod_agents   for all using (public.is_admin()) with check (public.is_admin());
 
 -- clients: read ONLY their own pod's data
 create policy client_read_own_client   on public.clients      for select using (id = public.current_client_id());
 create policy client_read_own_profile  on public.profiles     for select using (id = auth.uid());
 create policy client_read_own_calls    on public.calls        for select using (client_id = public.current_client_id());
 create policy client_read_own_invoices on public.invoices     for select using (client_id = public.current_client_id());
+create policy client_read_own_agents   on public.pod_agents   for select using (client_id = public.current_client_id());
 
 -- NOTE: webhooks (Retell/Stripe) write using the service-role key, which BYPASSES RLS by design.
 -- Clients have NO insert/update/delete policies, so they can only ever read their own rows.
