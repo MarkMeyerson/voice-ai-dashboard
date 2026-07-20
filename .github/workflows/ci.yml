@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Dummy values so `next build` succeeds: src/lib/stripe.ts constructs its
+      # client at module load, so page-data collection needs these set. Nothing
+      # here is a real credential and no external call is made during build.
+      NEXT_PUBLIC_SUPABASE_URL: https://dummy.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: dummy-service-key
+      STRIPE_SECRET_KEY: sk_test_dummy
+      STRIPE_WEBHOOK_SECRET: whsec_dummy
+      STRIPE_METER_ID: mtr_dummy
+      RETELL_API_KEY: key_dummy
+      RETELL_WEBHOOK_SECRET: dummy
+      RESEND_API_KEY: re_dummy
+      RESEND_FROM_EMAIL: noreply@example.com
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # Build only (includes full TypeScript checking). eslint is NOT enforced
+      # yet: the codebase has 2 pre-existing lint errors (see repo notes) —
+      # add `npx eslint .` here once they're cleaned up.
+      - run: npx next build
