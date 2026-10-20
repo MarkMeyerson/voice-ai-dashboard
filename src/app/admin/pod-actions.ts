@@ -111,16 +111,45 @@ export async function fetchAgents(
   }
 
   try {
-    const res = await fetch('https://api.retellai.com/list-agents', {
-      headers: { Authorization: `Bearer ${apiKey}` },
-      cache: 'no-store',
-    })
+    // POST /v2/list-agents replaced the legacy GET /list-agents (removed after
+    // 2026-07-31). It returns one page at a time, so follow pagination_key to
+    // collect every voice agent. MAX_PAGES guards against an endless loop.
+    const MAX_PAGES = 20
+    const raw: { agent_id: string; agent_name?: string }[] = []
+    let paginationKey: string | undefined
 
-    if (!res.ok) {
-      return { error: `Retell rejected that key (${res.status}).` }
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const url = new URL('https://api.retellai.com/v2/list-agents')
+      if (paginationKey) url.searchParams.set('pagination_key', paginationKey)
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          filter_criteria: {
+            channel: { type: 'string', op: 'eq', value: 'voice' },
+          },
+        }),
+        cache: 'no-store',
+      })
+
+      if (!res.ok) {
+        return { error: `Retell rejected that key (${res.status}).` }
+      }
+
+      const data: {
+        items?: { agent_id: string; agent_name?: string }[]
+        has_more?: boolean
+        pagination_key?: string
+      } = await res.json()
+
+      raw.push(...(data.items ?? []))
+      if (!data.has_more || !data.pagination_key) break
+      paginationKey = data.pagination_key
     }
-
-    const raw: { agent_id: string; agent_name?: string }[] = await res.json()
 
     // Dedupe by agent_id
     const seen = new Set<string>()
