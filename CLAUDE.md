@@ -40,10 +40,9 @@ supabase/schema.sql                # run this in Supabase SQL editor (tables + R
 RLS isolates tenants: clients can only `select` their own rows via `current_client_id()`; admins
 see all via `is_admin()`. Webhooks/admin use the **service-role** client which bypasses RLS.
 
-`schema.sql` is the original frozen schema; the live DB has drifted (pod_agents.label,
-clients.notification_email/drive_folder_id/billing_starts_at/chat_rate_per_message_cents,
-calls.message_count/agent_label/email_sent_at were added by hand). New changes go in
-`supabase/migrations/*.sql` (idempotent, run by hand in the SQL editor).
+`schema.sql` is the full schema for a fresh database (section 7 lists columns added after the
+original freeze). Changes to an existing database go in `supabase/migrations/*.sql`
+(idempotent, run by hand in the SQL editor); add the same columns to schema.sql section 7.
 
 ### Chat plans (first client: WFWC, `supabase/migrations/20261022_chat_plans.sql`)
 - `clients.channel` 'voice' | 'chat' picks the client-facing words (calls/minutes vs
