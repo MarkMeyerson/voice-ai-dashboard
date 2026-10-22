@@ -15,6 +15,8 @@ export type CallRow = {
   recording_url: string | null
   transcript: string | null
   message_count?: number | null
+  user_message_count?: number | null
+  chat_status?: string | null
   agent_label?: string | null
 }
 
@@ -52,7 +54,20 @@ function monthLabel(key: string) {
 
 type Sort = 'newest' | 'oldest' | 'longest' | 'costliest'
 
-export function CallLog({ calls, billingStartsAt }: { calls: CallRow[]; billingStartsAt?: string }) {
+// Chat pods show conversations and messages; voice pods show calls and
+// minutes. `messageBasis` only affects the "Messages" stat label.
+export function CallLog({
+  calls,
+  billingStartsAt,
+  mode = 'voice',
+  messageBasis = 'agent',
+}: {
+  calls: CallRow[]
+  billingStartsAt?: string
+  mode?: 'voice' | 'chat'
+  messageBasis?: 'agent' | 'all'
+}) {
+  const chatMode = mode === 'chat'
   const months = useMemo(() => {
     const set = new Set(calls.map((c) => monthKey(c.started_at)))
     return Array.from(set).sort().reverse()
@@ -115,16 +130,31 @@ export function CallLog({ calls, billingStartsAt }: { calls: CallRow[]; billingS
       : scoped
     const billed = billable.reduce((s, c) => s + Number(c.billed_cents), 0)
     const minutes = billable.reduce((s, c) => s + c.duration_seconds / 60, 0)
-    return { billed, minutes, count: billable.length }
+    const messages = billable.reduce((s, c) => s + Number(c.message_count ?? 0), 0)
+    return { billed, minutes, messages, count: billable.length }
   }, [scoped, billingStartsAt])
 
   return (
     <div className="space-y-6">
       {/* Stats reflect the current filter */}
       <div className="grid grid-cols-1 divide-y divide-ink/12 border border-ink/15 bg-card sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-        <Stat label={month === 'all' ? 'Total billed' : 'Billed'} value={money(stats.billed)} accent />
-        <Stat label="Minutes" value={stats.minutes.toFixed(1)} />
-        <Stat label="Calls" value={String(stats.count)} />
+        {chatMode ? (
+          <>
+            <Stat label="Conversations" value={String(stats.count)} />
+            <Stat
+              label={messageBasis === 'all' ? 'Messages (both sides)' : 'Messages (assistant)'}
+              value={stats.messages.toLocaleString()}
+              accent
+            />
+            <Stat label={month === 'all' ? 'Usage value' : 'Usage value'} value={money(stats.billed)} />
+          </>
+        ) : (
+          <>
+            <Stat label={month === 'all' ? 'Total billed' : 'Billed'} value={money(stats.billed)} accent />
+            <Stat label="Minutes" value={stats.minutes.toFixed(1)} />
+            <Stat label="Calls" value={String(stats.count)} />
+          </>
+        )}
       </div>
 
       {/* Toolbar */}
@@ -132,7 +162,7 @@ export function CallLog({ calls, billingStartsAt }: { calls: CallRow[]; billingS
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search transcripts, caller, sentiment…"
+          placeholder={chatMode ? 'Search transcripts, sentiment…' : 'Search transcripts, caller, sentiment…'}
           className="min-w-[240px] flex-1 border-b border-ink/20 bg-transparent pb-2 text-sm text-ink placeholder:text-muted/60 outline-none transition focus:border-seal"
         />
         <Select value={month} onChange={setMonth}>
@@ -146,8 +176,8 @@ export function CallLog({ calls, billingStartsAt }: { calls: CallRow[]; billingS
         <Select value={sort} onChange={(v) => setSort(v as Sort)}>
           <option value="newest">Newest first</option>
           <option value="oldest">Oldest first</option>
-          <option value="longest">Longest</option>
-          <option value="costliest">Highest cost</option>
+          {!chatMode && <option value="longest">Longest</option>}
+          <option value="costliest">{chatMode ? 'Most messages' : 'Highest cost'}</option>
         </Select>
       </div>
 
@@ -155,15 +185,17 @@ export function CallLog({ calls, billingStartsAt }: { calls: CallRow[]; billingS
       <div className="border border-ink/15 bg-card">
         <div className="grid grid-cols-[1.3fr_1.1fr_0.6fr_0.7fr_0.9fr] gap-4 border-b border-ink/15 px-6 py-3 text-[11px] uppercase tracking-[0.18em] text-muted">
           <span>Time</span>
-          <span>Caller</span>
-          <span>Length</span>
-          <span>Cost</span>
+          <span>{chatMode ? 'Conversation' : 'Caller'}</span>
+          <span>{chatMode ? 'Messages' : 'Length'}</span>
+          <span>{chatMode ? 'Usage' : 'Cost'}</span>
           <span>Sentiment</span>
         </div>
 
         {scoped.length === 0 ? (
           <div className="px-6 py-16 text-center">
-            <p className="font-serif text-lg text-ink">No matching calls</p>
+            <p className="font-serif text-lg text-ink">
+              {chatMode ? 'No matching conversations' : 'No matching calls'}
+            </p>
             <p className="mt-1 text-sm text-muted">Try a different month or search.</p>
           </div>
         ) : (
@@ -191,8 +223,16 @@ export function CallLog({ calls, billingStartsAt }: { calls: CallRow[]; billingS
                   </span>
                   {isChatRow(item.call) ? (
                     <span className="flex items-center gap-1.5 text-[13px] text-muted">
-                      <span className="inline-block h-1.5 w-1.5 rounded-full border border-seal/60" />
-                      {item.call.agent_label || 'Website chat'}
+                      <span
+                        className={`inline-block h-1.5 w-1.5 rounded-full border border-seal/60 ${
+                          item.call.chat_status === 'ongoing' ? 'bg-seal/60' : ''
+                        }`}
+                        title={item.call.chat_status === 'ongoing' ? 'Still open' : undefined}
+                      />
+                      {item.call.agent_label || (chatMode ? 'Chat' : 'Website chat')}
+                      {item.call.chat_status === 'ongoing' && (
+                        <span className="text-[10px] uppercase tracking-[0.12em] text-muted/70">open</span>
+                      )}
                     </span>
                   ) : (
                     <span>
@@ -206,7 +246,9 @@ export function CallLog({ calls, billingStartsAt }: { calls: CallRow[]; billingS
                   )}
                   <span className="text-muted">
                     {isChatRow(item.call)
-                      ? `${item.call.message_count ?? 0} msgs`
+                      ? chatMode
+                        ? String(item.call.message_count ?? 0)
+                        : `${item.call.message_count ?? 0} msgs`
                       : mmss(item.call.duration_seconds)}
                   </span>
                   <span className="text-ink">
@@ -219,9 +261,22 @@ export function CallLog({ calls, billingStartsAt }: { calls: CallRow[]; billingS
                 </summary>
                 <div className="space-y-4 bg-card-2 px-6 py-4 text-sm">
                   <div className="flex flex-wrap gap-x-8 gap-y-2 text-xs">
-                    <Detail label="Type" value={item.call.call_type || '—'} />
-                    <Detail label="End reason" value={item.call.disconnect_reason || '—'} />
-                    <Detail label="Call ID" value={item.call.retell_call_id} mono />
+                    {isChatRow(item.call) ? (
+                      <>
+                        <Detail
+                          label="Messages"
+                          value={`${item.call.message_count ?? 0} assistant · ${item.call.user_message_count ?? 0} user`}
+                        />
+                        <Detail label="Status" value={item.call.chat_status || '—'} />
+                        <Detail label="Conversation ID" value={item.call.retell_call_id} mono />
+                      </>
+                    ) : (
+                      <>
+                        <Detail label="Type" value={item.call.call_type || '—'} />
+                        <Detail label="End reason" value={item.call.disconnect_reason || '—'} />
+                        <Detail label="Call ID" value={item.call.retell_call_id} mono />
+                      </>
+                    )}
                   </div>
                   {item.call.recording_url && (
                     <div className="border border-ink/15 bg-paper p-3">

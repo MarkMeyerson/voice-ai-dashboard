@@ -4,7 +4,7 @@ import { startTransition, useState } from 'react'
 import { fetchAgents, createClientPod, updateClientPod } from '@/app/admin/pod-actions'
 import { SubmitButton } from '@/components/submit-button'
 
-type Agent = { id: string; name: string }
+type Agent = { id: string; name: string; channel?: 'voice' | 'chat' }
 
 type PodFormProps = {
   mode: 'create' | 'edit'
@@ -21,6 +21,12 @@ type PodFormProps = {
     notificationEmail: string
     agents: Agent[]
     users: { id: string; email: string }[]
+    // chat plan
+    channel?: 'voice' | 'chat'
+    includedMessages?: string
+    rateMessageDollars?: string
+    messageBasis?: 'agent' | 'all'
+    ingestMode?: 'webhook' | 'poll'
   }
 }
 
@@ -36,6 +42,14 @@ export function PodForm(props: PodFormProps) {
   const [costDollars, setCostDollars] = useState(initial?.costDollars ?? '')
   const [monthlyDollars, setMonthlyDollars] = useState(initial?.monthlyDollars ?? '')
   const [password, setPassword] = useState('')
+
+  // ── chat plan ─────────────────────────────────────────────────────────────
+  const [channel, setChannel] = useState<'voice' | 'chat'>(initial?.channel ?? 'voice')
+  const [includedMessages, setIncludedMessages] = useState(initial?.includedMessages ?? '')
+  const [rateMessageDollars, setRateMessageDollars] = useState(initial?.rateMessageDollars ?? '')
+  const [messageBasis, setMessageBasis] = useState<'agent' | 'all'>(initial?.messageBasis ?? 'agent')
+  const [ingestMode, setIngestMode] = useState<'webhook' | 'poll'>(initial?.ingestMode ?? 'webhook')
+  const [skipStripe, setSkipStripe] = useState(false)
 
   // ── Retell / agents ───────────────────────────────────────────────────────
   const [retellApiKey, setRetellApiKey] = useState(initial?.retellApiKey ?? '')
@@ -84,7 +98,6 @@ export function PodForm(props: PodFormProps) {
   }
 
   function handleLoadAgents() {
-    if (!retellApiKey.trim()) return
     setAgentFetchError(null)
     setLoadingAgents(true)
     startTransition(() => {
@@ -142,8 +155,14 @@ export function PodForm(props: PodFormProps) {
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const fd = new FormData()
+    fd.set('channel', channel)
+    fd.set('included_messages', includedMessages)
+    fd.set('rate_per_message', rateMessageDollars)
+    fd.set('message_basis', messageBasis)
+    fd.set('ingest_mode', ingestMode)
 
     if (mode === 'create') {
+      fd.set('skip_stripe', skipStripe ? '1' : '0')
       fd.set('name', name)
       fd.set('slug', slug)
       fd.set('retell_api_key', retellApiKey)
@@ -254,6 +273,26 @@ export function PodForm(props: PodFormProps) {
         </div>
       )}
 
+      {/* ── Channel ──────────────────────────────────────────────────────── */}
+      <div className="space-y-1">
+        <label className={labelCls}>Plan type</label>
+        <select
+          value={channel}
+          onChange={(e) => {
+            const next = e.target.value === 'chat' ? 'chat' : 'voice'
+            setChannel(next)
+            if (next === 'chat' && mode === 'create') setBillingMode('monthly_plus_usage')
+          }}
+          className={inputCls}
+        >
+          <option value="voice">Voice (calls and minutes)</option>
+          <option value="chat">Chat (conversations and messages)</option>
+        </select>
+        <p className="text-[11px] text-muted">
+          Sets the words the client sees: calls and minutes, or conversations and messages.
+        </p>
+      </div>
+
       {/* ── Billing mode ─────────────────────────────────────────────────── */}
       <div className="space-y-1">
         <label className={labelCls}>Billing mode</label>
@@ -266,6 +305,79 @@ export function PodForm(props: PodFormProps) {
           <option value="monthly_plus_usage">Monthly retainer + usage</option>
         </select>
       </div>
+
+      {/* ── Chat plan ─────────────────────────────────────────────────────── */}
+      {channel === 'chat' && (
+        <div className="space-y-6 border border-ink/15 bg-paper p-5">
+          <p className={labelCls}>Message plan</p>
+          <div className="grid grid-cols-3 gap-6">
+            <div className="space-y-1">
+              <label className={labelCls}>Monthly $</label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={monthlyDollars}
+                onChange={(e) => setMonthlyDollars(e.target.value)}
+                placeholder="250"
+                className={inputCls}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className={labelCls}>Included msgs / mo</label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={includedMessages}
+                onChange={(e) => setIncludedMessages(e.target.value)}
+                placeholder="2000"
+                className={inputCls}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className={labelCls}>Over $/msg</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={rateMessageDollars}
+                onChange={(e) => setRateMessageDollars(e.target.value)}
+                placeholder="0.04"
+                className={inputCls}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-6">
+            <div className="space-y-1">
+              <label className={labelCls}>What counts as a message</label>
+              <select
+                value={messageBasis}
+                onChange={(e) => setMessageBasis(e.target.value === 'all' ? 'all' : 'agent')}
+                className={inputCls}
+              >
+                <option value="agent">Assistant replies only</option>
+                <option value="all">Assistant replies + user messages</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className={labelCls}>How chats arrive</label>
+              <select
+                value={ingestMode}
+                onChange={(e) => setIngestMode(e.target.value === 'poll' ? 'poll' : 'webhook')}
+                className={inputCls}
+              >
+                <option value="webhook">Agent webhook points here</option>
+                <option value="poll">Pull every 15 min (webhook used elsewhere)</option>
+              </select>
+            </div>
+          </div>
+          <p className="text-[11px] text-muted">
+            Pull mode leaves the agent&apos;s webhook alone and counts ongoing chats too.
+            Usage is metered from the first message; the allowance is applied at billing.
+          </p>
+        </div>
+      )}
 
       {/* ── Rate / Cost / Monthly ─────────────────────────────────────────── */}
       <div className="grid grid-cols-3 gap-6">
@@ -322,12 +434,15 @@ export function PodForm(props: PodFormProps) {
             <button
               type="button"
               onClick={handleLoadAgents}
-              disabled={loadingAgents || !retellApiKey.trim()}
+              disabled={loadingAgents}
               className="shrink-0 border-b border-ink/20 pb-2 text-[11px] uppercase tracking-[0.2em] text-muted transition-colors hover:text-ink disabled:opacity-40"
             >
               {loadingAgents ? 'Loading…' : 'Load agents'}
             </button>
           </div>
+          <p className="text-[11px] text-muted">
+            Leave blank to use the workspace key and list its voice and chat agents.
+          </p>
         </div>
 
         {agentFetchError && (
@@ -372,6 +487,11 @@ export function PodForm(props: PodFormProps) {
                       onChange={() => toggleAgent(agent)}
                     />
                     <span className="text-sm text-ink">{agent.name}</span>
+                    {agent.channel && (
+                      <span className="border border-ink/15 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.14em] text-muted">
+                        {agent.channel}
+                      </span>
+                    )}
                     <span className="ml-auto font-mono text-[10px] text-muted">{agent.id}</span>
                   </label>
                 )
@@ -465,6 +585,25 @@ export function PodForm(props: PodFormProps) {
           + Add another email
         </button>
       </div>
+
+      {/* ── Stripe (create only) ─────────────────────────────────────────── */}
+      {mode === 'create' && (
+        <label className="flex cursor-pointer items-start gap-3">
+          <input
+            type="checkbox"
+            checked={skipStripe}
+            onChange={(e) => setSkipStripe(e.target.checked)}
+            className="mt-1"
+          />
+          <span>
+            <span className="block text-sm text-ink">Set up Stripe later</span>
+            <span className="block text-[11px] text-muted">
+              Creates the pod with no Stripe customer or subscription. Nothing is created in Stripe.
+              Use this for chat plans, which need a tiered overage price attached by hand.
+            </span>
+          </span>
+        </label>
+      )}
 
       {/* ── Password (create only) ───────────────────────────────────────── */}
       {mode === 'create' && (

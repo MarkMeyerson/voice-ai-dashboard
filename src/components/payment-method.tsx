@@ -12,6 +12,7 @@ export function PaymentMethodCard({
   billingMode,
   rateCents,
   monthlyCents,
+  chatPlan,
 }: {
   slug: string
   card: { brand: string; last4: string } | null
@@ -19,14 +20,31 @@ export function PaymentMethodCard({
   billingMode: string
   rateCents: number
   monthlyCents: number
+  // Present for chat pods: retainer includes N messages, overage per message.
+  chatPlan?: { includedMessages: number; ratePerMessageCents: number }
 }) {
   const action = addPaymentMethod.bind(null, slug)
 
   const planParts: string[] = []
-  if (billingMode === 'monthly_plus_usage' && monthlyCents > 0) {
-    planParts.push(`${money(monthlyCents)}/mo retainer`)
+  if (chatPlan) {
+    if (monthlyCents > 0) {
+      planParts.push(
+        chatPlan.includedMessages > 0
+          ? `${money(monthlyCents)}/mo includes ${chatPlan.includedMessages.toLocaleString()} messages`
+          : `${money(monthlyCents)}/mo retainer`
+      )
+    }
+    planParts.push(
+      chatPlan.includedMessages > 0
+        ? `${money(chatPlan.ratePerMessageCents)} per message after that`
+        : `${money(chatPlan.ratePerMessageCents)} per message`
+    )
+  } else {
+    if (billingMode === 'monthly_plus_usage' && monthlyCents > 0) {
+      planParts.push(`${money(monthlyCents)}/mo retainer`)
+    }
+    planParts.push(`${money(rateCents)} per minute`)
   }
-  planParts.push(`${money(rateCents)} per minute`)
 
   return (
     <div className="border border-ink/15 bg-card">

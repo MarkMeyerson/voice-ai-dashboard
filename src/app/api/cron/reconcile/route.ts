@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { callToRow, chatToRow, listChats, type RetellCall } from '@/lib/retell'
+import { callToRow, chatToRow, listChats, syncAgentChats, type RetellCall } from '@/lib/retell'
 import { ensureClientFolder, uploadTranscriptToDrive } from '@/lib/drive'
 import { sendCallSummaryEmail, sendChatSummaryEmail, sendEmail } from '@/lib/email'
 
@@ -33,17 +33,18 @@ export async function GET(request: NextRequest) {
   const supabase = createAdminClient()
   const { data: clients } = await supabase
     .from('clients')
-    .select('id, name, slug, rate_per_minute_cents, chat_rate_per_message_cents, retell_api_key, retell_agent_id, notification_email, drive_folder_id')
+    .select('id, name, slug, rate_per_minute_cents, chat_rate_per_message_cents, retell_api_key, retell_agent_id, notification_email, drive_folder_id, ingest_mode, message_basis')
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voicedesk-one.vercel.app'
   const adminEmail = process.env.ADMIN_SUMMARY_EMAIL
   const recovered: string[] = []
   const emailed: string[] = []
+  const polled: string[] = []
 
   for (const client of clients ?? []) {
     const { data: pa } = await supabase
       .from('pod_agents')
-      .select('retell_agent_id, label')
+      .select('retell_agent_id, label, channel')
       .eq('client_id', client.id)
     const agentIds = new Set<string>((pa ?? []).map((a) => a.retell_agent_id))
     if (client.retell_agent_id) agentIds.add(client.retell_agent_id)
@@ -54,6 +55,38 @@ export async function GET(request: NextRequest) {
 
     const key = client.retell_api_key || process.env.RETELL_API_KEY!
     const cutoff = Date.now() - LOOKBACK_MS
+
+    // ── Poll-mode pods ───────────────────────────────────────────────────
+    // The agent's webhook belongs to another service (e.g. the WFWC Modal
+    // transcript service), so this cron IS the ingestion path: pull every
+    // chat in the window with its full transcript and message counts,
+    // ongoing ones included. No "webhook missed" alert, no recovery email.
+    if (client.ingest_mode === 'poll') {
+      const chatAgents = (pa ?? []).filter((a) => a.channel === 'chat')
+      for (const a of chatAgents) {
+        try {
+          const ids = await syncAgentChats({
+            agentId: a.retell_agent_id,
+            key,
+            clientId: client.id,
+            ratePerMessageCents: client.chat_rate_per_message_cents ?? 0,
+            basis: client.message_basis === 'all' ? 'all' : 'agent',
+            agentLabel: a.label ?? null,
+            sinceMs: cutoff,
+            upsert: async (rows) => {
+              const { error } = await supabase
+                .from('calls')
+                .upsert(rows, { onConflict: 'retell_call_id' })
+              if (error) throw new Error(error.message)
+            },
+          })
+          polled.push(`${client.slug}:${ids.length}`)
+        } catch (e) {
+          console.error('[reconcile] poll failed for', client.slug, a.retell_agent_id, e)
+        }
+      }
+      continue
+    }
 
     for (const agentId of agentIds) {
       let calls: RetellCall[] = []
@@ -244,5 +277,5 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ recovered: recovered.length, emailed: emailed.length })
+  return NextResponse.json({ recovered: recovered.length, emailed: emailed.length, polled })
 }

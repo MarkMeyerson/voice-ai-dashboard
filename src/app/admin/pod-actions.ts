@@ -11,7 +11,7 @@ import {
   createMonthlyPrice,
   createSubscription,
 } from '@/lib/stripe'
-import { callToRow, listAgentCalls } from '@/lib/retell'
+import { callToRow, listAgentCalls, listAgents, syncAgentChats } from '@/lib/retell'
 import { sendInviteEmail } from '@/lib/email'
 
 // Delete a pod and everything tied to it (calls, agents, invoices, usage all
@@ -101,43 +101,75 @@ function tryParseArray<T>(json: string | null | undefined): T[] {
 // 1. fetchAgents
 // ---------------------------------------------------------------------------
 
+export type AgentOption = { id: string; name: string; channel: 'voice' | 'chat' }
+
+// Lists voice AND chat agents. An empty key means "use the workspace key"
+// (RETELL_API_KEY), which is where single-workspace clients like WFWC live.
 export async function fetchAgents(
   apiKey: string
-): Promise<{ agents?: { id: string; name: string }[]; error?: string }> {
+): Promise<{ agents?: AgentOption[]; error?: string }> {
   await requireAdmin()
 
-  if (!apiKey.startsWith('key_')) {
+  const key = apiKey.trim() || process.env.RETELL_API_KEY || ''
+  if (!key.startsWith('key_')) {
     return { error: 'Enter a valid Retell API key.' }
   }
 
   try {
-    const res = await fetch('https://api.retellai.com/list-agents', {
-      headers: { Authorization: `Bearer ${apiKey}` },
-      cache: 'no-store',
-    })
-
-    if (!res.ok) {
-      return { error: `Retell rejected that key (${res.status}).` }
-    }
-
-    const raw: { agent_id: string; agent_name?: string }[] = await res.json()
-
-    // Dedupe by agent_id
-    const seen = new Set<string>()
-    const deduped = raw.filter((a) => {
-      if (seen.has(a.agent_id)) return false
-      seen.add(a.agent_id)
-      return true
-    })
-
+    return { agents: await listAgents(key) }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : ''
     return {
-      agents: deduped.map((a) => ({
-        id: a.agent_id,
-        name: a.agent_name || 'Unnamed',
-      })),
+      error: msg.includes('listAgents ')
+        ? `Retell rejected that key (${msg.replace('listAgents ', '')}).`
+        : 'Could not reach Retell.',
     }
-  } catch {
-    return { error: 'Could not reach Retell.' }
+  }
+}
+
+// Chat-plan fields shared by create + update. Overage/usage rate is stored in
+// the existing chat_rate_per_message_cents column.
+function chatPlanFields(formData: FormData) {
+  const channel: 'voice' | 'chat' =
+    String(formData.get('channel') ?? 'voice') === 'chat' ? 'chat' : 'voice'
+  const includedRaw = parseInt(String(formData.get('included_messages') ?? '0'), 10)
+  const basis: 'agent' | 'all' =
+    String(formData.get('message_basis') ?? 'agent') === 'all' ? 'all' : 'agent'
+  const ingest: 'webhook' | 'poll' =
+    String(formData.get('ingest_mode') ?? 'webhook') === 'poll' ? 'poll' : 'webhook'
+  return {
+    channel,
+    included_messages_per_month: Number.isFinite(includedRaw) ? Math.max(0, includedRaw) : 0,
+    chat_rate_per_message_cents: dollarsToCents(formData.get('rate_per_message')) || null,
+    message_basis: basis,
+    ingest_mode: ingest,
+  }
+}
+
+async function backfillChatAgents(args: {
+  admin: ReturnType<typeof createAdminClient>
+  clientId: string
+  key: string
+  agents: AgentOption[]
+  ratePerMessageCents: number
+  basis: 'agent' | 'all'
+}) {
+  for (const a of args.agents.filter((x) => x.channel === 'chat')) {
+    try {
+      await syncAgentChats({
+        agentId: a.id,
+        key: args.key,
+        clientId: args.clientId,
+        ratePerMessageCents: args.ratePerMessageCents,
+        basis: args.basis,
+        limit: 100,
+        upsert: async (rows) => {
+          await args.admin.from('calls').upsert(rows, { onConflict: 'retell_call_id' })
+        },
+      })
+    } catch (e) {
+      console.error(`chat backfill failed for agent ${a.id}`, e)
+    }
   }
 }
 
@@ -160,20 +192,25 @@ export async function createClientPod(formData: FormData): Promise<void> {
   const cost_per_minute_cents = dollarsToCents(formData.get('cost_per_minute'))
   const monthly_price_cents = dollarsToCents(formData.get('monthly_price'))
 
-  const agents = tryParseArray<{ id: string; name: string }>(
-    formData.get('agents') as string | null
+  const agents = tryParseArray<AgentOption>(formData.get('agents') as string | null).map(
+    (a) => ({ ...a, channel: a.channel === 'chat' ? ('chat' as const) : ('voice' as const) })
   )
   const emails = tryParseArray<string>(
     formData.get('emails') as string | null
   )
   const notification_email = String(formData.get('notification_email') ?? '').trim() || null
+  const plan = chatPlanFields(formData)
+  // "Set up Stripe later": create the pod with no customer/subscription so a
+  // chat plan can be attached deliberately (tiered overage price) instead of
+  // the per-minute default. Nothing in Stripe is touched.
+  const skipStripe = String(formData.get('skip_stripe') ?? '') === '1'
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 
   // --- Stripe: customer + metered (and optional monthly) subscription ---
   let stripeCustomerId: string | null = null
   let stripeSubscriptionId: string | null = null
-  try {
+  if (!skipStripe) try {
     const customer = await createCustomer({
       name,
       email: emails[0] || '',
@@ -221,6 +258,7 @@ export async function createClientPod(formData: FormData): Promise<void> {
       stripe_subscription_id: stripeSubscriptionId,
       notification_email,
       status: 'active',
+      ...plan,
     })
     .select('id')
     .single()
@@ -237,7 +275,7 @@ export async function createClientPod(formData: FormData): Promise<void> {
       await admin
         .from('pod_agents')
         .upsert(
-          { client_id: clientId, retell_agent_id: a.id, agent_name: a.name },
+          { client_id: clientId, retell_agent_id: a.id, agent_name: a.name, channel: a.channel },
           { onConflict: 'retell_agent_id', ignoreDuplicates: true }
         )
     } catch (e) {
@@ -246,7 +284,9 @@ export async function createClientPod(formData: FormData): Promise<void> {
   }
 
   // --- Set each agent's webhook using the pod's own API key ---
-  if (retell_api_key) {
+  // Poll-mode pods keep whatever webhook the agent already has (it belongs
+  // to another service); the cron pulls their chats instead.
+  if (retell_api_key && plan.ingest_mode !== 'poll') {
     for (const a of agents) {
       try {
         const res = await fetch(
@@ -306,9 +346,22 @@ export async function createClientPod(formData: FormData): Promise<void> {
     }
   }
 
-  // --- Backfill recent calls for each agent using the pod's key ---
+  // --- Backfill recent chats for chat agents (pod key or workspace key) ---
+  const backfillKey = retell_api_key || process.env.RETELL_API_KEY || ''
+  if (backfillKey) {
+    await backfillChatAgents({
+      admin,
+      clientId,
+      key: backfillKey,
+      agents,
+      ratePerMessageCents: plan.chat_rate_per_message_cents ?? 0,
+      basis: plan.message_basis,
+    })
+  }
+
+  // --- Backfill recent calls for each voice agent using the pod's key ---
   if (retell_api_key) {
-    for (const a of agents) {
+    for (const a of agents.filter((x) => x.channel !== 'chat')) {
       try {
         // Use the pod's own Retell key, not the global env var.
         const calls = await listAgentCalls(a.id, 50, retell_api_key)
@@ -349,6 +402,7 @@ export async function updateClientPod(formData: FormData): Promise<void> {
   const rate_per_minute_cents = dollarsToCents(formData.get('rate_per_minute'))
   const cost_per_minute_cents = dollarsToCents(formData.get('cost_per_minute'))
   const monthly_price_cents = dollarsToCents(formData.get('monthly_price'))
+  const plan = chatPlanFields(formData)
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 
@@ -364,6 +418,7 @@ export async function updateClientPod(formData: FormData): Promise<void> {
       cost_per_minute_cents,
       monthly_price_cents,
       notification_email,
+      ...plan,
     })
     .eq('id', client_id)
 
@@ -372,21 +427,21 @@ export async function updateClientPod(formData: FormData): Promise<void> {
   }
 
   // --- Add new agents ---
-  const add_agents = tryParseArray<{ id: string; name: string }>(
+  const add_agents = tryParseArray<AgentOption>(
     formData.get('add_agents') as string | null
-  )
+  ).map((a) => ({ ...a, channel: a.channel === 'chat' ? ('chat' as const) : ('voice' as const) }))
 
   for (const a of add_agents) {
     try {
       await admin
         .from('pod_agents')
         .upsert(
-          { client_id, retell_agent_id: a.id, agent_name: a.name },
+          { client_id, retell_agent_id: a.id, agent_name: a.name, channel: a.channel },
           { onConflict: 'retell_agent_id', ignoreDuplicates: true }
         )
 
-      // Set webhook using the pod's key
-      if (retell_api_key) {
+      // Set webhook using the pod's key (never for poll-mode pods)
+      if (retell_api_key && plan.ingest_mode !== 'poll') {
         const res = await fetch(
           `https://api.retellai.com/update-agent/${a.id}`,
           {
@@ -410,6 +465,19 @@ export async function updateClientPod(formData: FormData): Promise<void> {
     } catch (e) {
       console.error(`add agent failed for ${a.id}`, e)
     }
+  }
+
+  // --- Backfill chats for newly added chat agents ---
+  const backfillKey = retell_api_key || process.env.RETELL_API_KEY || ''
+  if (backfillKey && add_agents.some((a) => a.channel === 'chat')) {
+    await backfillChatAgents({
+      admin,
+      clientId: client_id,
+      key: backfillKey,
+      agents: add_agents,
+      ratePerMessageCents: plan.chat_rate_per_message_cents ?? 0,
+      basis: plan.message_basis,
+    })
   }
 
   // --- Remove agents ---

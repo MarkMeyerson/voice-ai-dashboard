@@ -21,7 +21,7 @@ export default async function EditPodPage({
   const { data: client } = await supabase
     .from('clients')
     .select(
-      'id, name, slug, billing_mode, status, rate_per_minute_cents, cost_per_minute_cents, monthly_price_cents, retell_api_key, retell_agent_id, notification_email'
+      'id, name, slug, billing_mode, status, rate_per_minute_cents, cost_per_minute_cents, monthly_price_cents, retell_api_key, retell_agent_id, notification_email, channel, included_messages_per_month, chat_rate_per_message_cents, message_basis, ingest_mode'
     )
     .eq('slug', slug)
     .maybeSingle()
@@ -30,7 +30,7 @@ export default async function EditPodPage({
 
   const { data: agentRows } = await supabase
     .from('pod_agents')
-    .select('retell_agent_id, agent_name')
+    .select('retell_agent_id, agent_name, channel')
     .eq('client_id', client.id)
   const { data: users } = await supabase
     .from('profiles')
@@ -38,9 +38,13 @@ export default async function EditPodPage({
     .eq('client_id', client.id)
 
   // Merge the pod's agents from pod_agents + the legacy single-agent field.
-  const agentMap = new Map<string, { id: string; name: string }>()
+  const agentMap = new Map<string, { id: string; name: string; channel?: 'voice' | 'chat' }>()
   for (const a of agentRows ?? []) {
-    agentMap.set(a.retell_agent_id, { id: a.retell_agent_id, name: a.agent_name ?? 'Agent' })
+    agentMap.set(a.retell_agent_id, {
+      id: a.retell_agent_id,
+      name: a.agent_name ?? 'Agent',
+      channel: a.channel === 'chat' ? 'chat' : 'voice',
+    })
   }
   if (client.retell_agent_id && !agentMap.has(client.retell_agent_id)) {
     agentMap.set(client.retell_agent_id, { id: client.retell_agent_id, name: 'Agent' })
@@ -73,6 +77,13 @@ export default async function EditPodPage({
           notificationEmail: client.notification_email ?? '',
           agents,
           users: (users ?? []).map((u) => ({ id: u.id, email: u.email ?? '' })),
+          channel: client.channel === 'chat' ? 'chat' : 'voice',
+          includedMessages: String(client.included_messages_per_month ?? 0),
+          rateMessageDollars: client.chat_rate_per_message_cents
+            ? dollars(client.chat_rate_per_message_cents)
+            : '',
+          messageBasis: client.message_basis === 'all' ? 'all' : 'agent',
+          ingestMode: client.ingest_mode === 'poll' ? 'poll' : 'webhook',
         }}
       />
 

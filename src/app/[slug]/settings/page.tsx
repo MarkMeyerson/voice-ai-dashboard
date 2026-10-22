@@ -24,7 +24,7 @@ export default async function ClientSettings({
   const { data: client } = await supabase
     .from('clients')
     .select(
-      'id, name, slug, stripe_customer_id, billing_mode, rate_per_minute_cents, monthly_price_cents'
+      'id, name, slug, stripe_customer_id, billing_mode, rate_per_minute_cents, monthly_price_cents, channel, included_messages_per_month, chat_rate_per_message_cents'
     )
     .eq('slug', slug)
     .maybeSingle()
@@ -87,13 +87,34 @@ export default async function ClientSettings({
             billingMode={client.billing_mode}
             rateCents={client.rate_per_minute_cents}
             monthlyCents={client.monthly_price_cents}
+            chatPlan={
+              client.channel === 'chat'
+                ? {
+                    includedMessages: client.included_messages_per_month ?? 0,
+                    ratePerMessageCents: client.chat_rate_per_message_cents ?? 0,
+                  }
+                : undefined
+            }
           />
           <p className="text-xs text-muted">
-            You&apos;re billed {money(client.rate_per_minute_cents)} per minute
-            {client.billing_mode === 'monthly_plus_usage' && client.monthly_price_cents > 0
-              ? ` plus a ${money(client.monthly_price_cents)} monthly retainer`
-              : ''}
-            . With a card on file, your invoice is charged automatically each month.
+            {client.channel === 'chat' ? (
+              <>
+                Your plan is {money(client.monthly_price_cents)} per month
+                {(client.included_messages_per_month ?? 0) > 0
+                  ? ` and includes ${(client.included_messages_per_month ?? 0).toLocaleString()} messages`
+                  : ''}
+                . Additional messages are {money(client.chat_rate_per_message_cents ?? 0)} each.
+              </>
+            ) : (
+              <>
+                You&apos;re billed {money(client.rate_per_minute_cents)} per minute
+                {client.billing_mode === 'monthly_plus_usage' && client.monthly_price_cents > 0
+                  ? ` plus a ${money(client.monthly_price_cents)} monthly retainer`
+                  : ''}
+                .
+              </>
+            )}{' '}
+            With a card on file, your invoice is charged automatically each month.
           </p>
         </section>
 

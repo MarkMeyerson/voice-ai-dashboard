@@ -10,6 +10,8 @@ import PortalCharts from '@/components/portal-charts'
 import { SyncButton } from '@/components/sync-button'
 import { CallLog, type CallRow } from '@/components/call-log'
 import { PropertyFooter } from '@/components/summit'
+import { UsageCard } from '@/components/usage-card'
+import { monthUsage } from '@/lib/usage'
 
 export default async function ClientDashboard({
   params,
@@ -27,12 +29,14 @@ export default async function ClientDashboard({
   const { data: client } = await supabase
     .from('clients')
     .select(
-      'id, name, slug, stripe_customer_id, billing_mode, rate_per_minute_cents, monthly_price_cents, created_at, billing_starts_at'
+      'id, name, slug, stripe_customer_id, billing_mode, rate_per_minute_cents, monthly_price_cents, created_at, billing_starts_at, channel, included_messages_per_month, chat_rate_per_message_cents, message_basis'
     )
     .eq('slug', slug)
     .maybeSingle()
 
   if (!client) redirect(profile.role === 'admin' ? '/admin' : '/')
+
+  const isChat = client.channel === 'chat'
 
   // Pods without Stripe billing (archives) get no divider and no exclusions.
   const billingStartsAt = client.stripe_customer_id
@@ -46,13 +50,25 @@ export default async function ClientDashboard({
   const { data } = await supabase
     .from('calls')
     .select(
-      'id, retell_call_id, call_type, started_at, duration_seconds, billed_cents, sentiment, disconnect_reason, recording_url, transcript, from_number, message_count, agent_label'
+      'id, retell_call_id, call_type, started_at, duration_seconds, billed_cents, sentiment, disconnect_reason, recording_url, transcript, from_number, message_count, user_message_count, chat_status, agent_label'
     )
     .eq('client_id', client.id)
     .order('started_at', { ascending: false, nullsFirst: false })
     .limit(500)
 
   const calls = (data ?? []) as CallRow[]
+
+  const usage = isChat
+    ? monthUsage(
+        billingStartsAt ? calls.filter((c) => c.started_at && c.started_at >= billingStartsAt) : calls,
+        {
+          included_messages_per_month: client.included_messages_per_month ?? 0,
+          chat_rate_per_message_cents: client.chat_rate_per_message_cents ?? 0,
+          monthly_price_cents: client.monthly_price_cents,
+          message_basis: client.message_basis === 'all' ? 'all' : 'agent',
+        }
+      )
+    : null
 
   return (
     <main className="min-h-screen bg-paper">
@@ -90,6 +106,14 @@ export default async function ClientDashboard({
           billingMode={client.billing_mode}
           rateCents={client.rate_per_minute_cents}
           monthlyCents={client.monthly_price_cents}
+          chatPlan={
+            isChat
+              ? {
+                  includedMessages: client.included_messages_per_month ?? 0,
+                  ratePerMessageCents: client.chat_rate_per_message_cents ?? 0,
+                }
+              : undefined
+          }
         />
 
         <div>
@@ -98,18 +122,33 @@ export default async function ClientDashboard({
             Dashboard
           </h1>
         </div>
-        <PortalCharts calls={calls} billingStartsAt={billingStartsAt} />
+        {usage ? (
+          <UsageCard
+            usage={usage}
+            ratePerMessageCents={client.chat_rate_per_message_cents ?? 0}
+            admin={profile.role === 'admin'}
+          />
+        ) : (
+          <PortalCharts calls={calls} billingStartsAt={billingStartsAt} />
+        )}
 
         <div className="flex items-end justify-between pt-2">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.25em] text-muted">Call history</p>
+            <p className="text-[11px] uppercase tracking-[0.25em] text-muted">
+              {isChat ? 'Conversation history' : 'Call history'}
+            </p>
             <h2 className="mt-1 font-serif text-2xl font-semibold tracking-tight text-ink">
-              Your calls
+              {isChat ? 'Your conversations' : 'Your calls'}
             </h2>
           </div>
           <SyncButton slug={slug} />
         </div>
-        <CallLog calls={calls} billingStartsAt={billingStartsAt} />
+        <CallLog
+          calls={calls}
+          billingStartsAt={billingStartsAt}
+          mode={isChat ? 'chat' : 'voice'}
+          messageBasis={client.message_basis === 'all' ? 'all' : 'agent'}
+        />
       </div>
       <PropertyFooter />
     </main>

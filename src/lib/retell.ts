@@ -104,6 +104,8 @@ export type RetellChat = {
 }
 
 // List recent chats for the workspace (used by the reconcile safety net).
+// NOTE: v3/list-chats returns summaries only — no transcript and no
+// message_with_tool_calls. Call getChat() for the full object.
 export async function listChats(key: string, limit = 100): Promise<RetellChat[]> {
   const res = await fetch(`${BASE}/v3/list-chats`, {
     method: 'POST',
@@ -116,16 +118,102 @@ export async function listChats(key: string, limit = 100): Promise<RetellChat[]>
   return data.items ?? []
 }
 
-// Map a Retell chat to a row in our `calls` table. Billing unit = messages
-// the agent sent (mirrors Retell's own per-message cost basis).
+// Chats for one agent (summaries), newest first, optionally since a timestamp.
+export async function listAgentChats(
+  agentId: string,
+  key: string,
+  opts: { limit?: number; sinceMs?: number } = {}
+): Promise<RetellChat[]> {
+  const filter_criteria: Record<string, unknown> = { agent: [{ agent_id: agentId }] }
+  if (opts.sinceMs) {
+    filter_criteria.start_timestamp = {
+      op: 'bt',
+      type: 'range',
+      value: [opts.sinceMs, Date.now() + 60_000],
+    }
+  }
+  const res = await fetch(`${BASE}/v3/list-chats`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filter_criteria, limit: opts.limit ?? 100 }),
+    cache: 'no-store',
+  })
+  if (!res.ok) throw new Error(`listAgentChats ${res.status}`)
+  const data = (await res.json()) as { items?: RetellChat[] }
+  return data.items ?? []
+}
+
+// Full chat object (transcript + message_with_tool_calls).
+export async function getChat(chatId: string, key: string): Promise<RetellChat> {
+  const res = await fetch(`${BASE}/get-chat/${chatId}`, {
+    headers: { Authorization: `Bearer ${key}` },
+    cache: 'no-store',
+  })
+  if (!res.ok) throw new Error(`getChat ${res.status}`)
+  return (await res.json()) as RetellChat
+}
+
+// Agents in a workspace, both channels. GET /list-agents was removed
+// 2026-07-31; /v2/list-agents is a POST with filters and pagination.
+export async function listAgents(
+  key: string
+): Promise<{ id: string; name: string; channel: 'voice' | 'chat' }[]> {
+  const out: { id: string; name: string; channel: 'voice' | 'chat' }[] = []
+  for (const channel of ['voice', 'chat'] as const) {
+    let paginationKey: string | undefined
+    for (let page = 0; page < 20; page++) {
+      const params = new URLSearchParams({ limit: '1000' })
+      if (paginationKey) params.set('pagination_key', paginationKey)
+      const res = await fetch(`${BASE}/v2/list-agents?${params}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filter_criteria: { channel: { type: 'string', op: 'eq', value: channel } },
+        }),
+        cache: 'no-store',
+      })
+      if (!res.ok) throw new Error(`listAgents ${res.status}`)
+      const data = (await res.json()) as {
+        items?: { agent_id: string; agent_name?: string }[]
+        pagination_key?: string
+        has_more?: boolean
+      }
+      for (const a of data.items ?? []) {
+        if (out.some((x) => x.id === a.agent_id)) continue
+        out.push({ id: a.agent_id, name: a.agent_name || 'Unnamed', channel })
+      }
+      if (!data.has_more || !data.pagination_key) break
+      paginationKey = data.pagination_key
+    }
+  }
+  return out
+}
+
+// Per-role turn counts. Tool-call entries are never messages.
+export function chatTurnCounts(chat: RetellChat) {
+  let agent = 0
+  let user = 0
+  for (const m of chat.message_with_tool_calls ?? []) {
+    if (m.role === 'agent') agent++
+    else if (m.role === 'user') user++
+  }
+  return { agent, user }
+}
+
+// Map a Retell chat to a row in our `calls` table. `message_count` is the
+// metered quantity under the pod's basis: 'agent' = assistant turns only
+// (mirrors Retell's own per-message cost basis), 'all' = assistant + user.
 export function chatToRow(
   chat: RetellChat,
   clientId: string,
-  ratePerMessageCents: number
+  ratePerMessageCents: number,
+  basis: 'agent' | 'all' = 'agent'
 ) {
-  const agentMessages = (chat.message_with_tool_calls ?? []).filter(
-    (m) => m.role === 'agent'
-  ).length
+  const turns = chatTurnCounts(chat)
+  // A chat where the visitor never typed is just the automatic greeting
+  // (widget opened and closed); it is stored but meters as zero messages.
+  const metered =
+    turns.user === 0 ? 0 : basis === 'all' ? turns.agent + turns.user : turns.agent
   const durationSeconds =
     chat.start_timestamp && chat.end_timestamp
       ? Math.max(0, Math.round((chat.end_timestamp - chat.start_timestamp) / 1000))
@@ -134,13 +222,15 @@ export function chatToRow(
     client_id: clientId,
     retell_call_id: chat.chat_id,
     call_type: chat.chat_type ?? 'chat',
+    chat_status: chat.chat_status ?? null,
     started_at: chat.start_timestamp
       ? new Date(chat.start_timestamp).toISOString()
       : null,
     duration_seconds: durationSeconds,
     cost_cents: chat.chat_cost?.combined_cost ?? 0,
-    billed_cents: agentMessages * ratePerMessageCents,
-    message_count: agentMessages,
+    billed_cents: metered * ratePerMessageCents,
+    message_count: metered,
+    user_message_count: turns.user,
     from_number: null,
     to_number: null,
     transcript: chat.transcript ?? null,
@@ -149,6 +239,41 @@ export function chatToRow(
     disconnect_reason: null,
     raw: chat,
   }
+}
+
+// Poll one chat agent and upsert every chat in the window: ongoing chats are
+// re-upserted so message counts keep growing until Retell ends them. Returns
+// the chat ids touched. Shared by the reconcile cron, the Refresh button and
+// the create-pod backfill.
+export async function syncAgentChats(args: {
+  agentId: string
+  key: string
+  clientId: string
+  ratePerMessageCents: number
+  basis: 'agent' | 'all'
+  agentLabel?: string | null
+  sinceMs?: number
+  limit?: number
+  upsert: (rows: ReturnType<typeof chatToRow>[]) => Promise<void>
+}): Promise<string[]> {
+  const summaries = await listAgentChats(args.agentId, args.key, {
+    sinceMs: args.sinceMs,
+    limit: args.limit,
+  })
+  const rows: (ReturnType<typeof chatToRow> & { agent_label: string | null })[] = []
+  for (const s of summaries) {
+    try {
+      const full = await getChat(s.chat_id, args.key)
+      rows.push({
+        ...chatToRow(full, args.clientId, args.ratePerMessageCents, args.basis),
+        agent_label: args.agentLabel ?? null,
+      })
+    } catch (e) {
+      console.error('[retell] getChat failed', s.chat_id, e)
+    }
+  }
+  if (rows.length) await args.upsert(rows)
+  return rows.map((r) => r.retell_call_id)
 }
 
 // Map a Retell call to a row in our `calls` table. Shared by webhook + backfill.

@@ -40,6 +40,23 @@ supabase/schema.sql                # run this in Supabase SQL editor (tables + R
 RLS isolates tenants: clients can only `select` their own rows via `current_client_id()`; admins
 see all via `is_admin()`. Webhooks/admin use the **service-role** client which bypasses RLS.
 
+`schema.sql` is the original frozen schema; the live DB has drifted (pod_agents.label,
+clients.notification_email/drive_folder_id/billing_starts_at/chat_rate_per_message_cents,
+calls.message_count/agent_label/email_sent_at were added by hand). New changes go in
+`supabase/migrations/*.sql` (idempotent, run by hand in the SQL editor).
+
+### Chat plans (first client: WFWC, `supabase/migrations/20261022_chat_plans.sql`)
+- `clients.channel` 'voice' | 'chat' picks the client-facing words (calls/minutes vs
+  conversations/messages). `included_messages_per_month` + `chat_rate_per_message_cents`
+  (overage rate) + `monthly_price_cents` describe the plan; `message_basis` 'agent' | 'all'
+  says what counts as one message (`src/lib/usage.ts` does the month math, America/Chicago).
+- `clients.ingest_mode` 'poll' means the agent's webhook belongs to another service, so the
+  reconcile cron pulls chats (`syncAgentChats` in `retell.ts`: v3/list-chats + get-chat, because
+  list-chats returns no transcript or messages) and never alerts or emails for that pod.
+  `pod_agents.channel` tells the cron which agents are chat agents.
+- Ongoing chats are re-upserted so counts grow; greeting-only chats (no user turn) meter as 0.
+- Never show the word "Retell" in a client view.
+
 ## Setup checklist (what to do for a new user)
 1. `npm install`, `cp .env.example .env.local`.
 2. Create a Supabase project; run `supabase/schema.sql`; fill the 3 Supabase vars.

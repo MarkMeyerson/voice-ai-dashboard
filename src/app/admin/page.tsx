@@ -2,6 +2,8 @@ import Link from 'next/link'
 import { requireAdmin } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 
+import { monthUsage, type MonthUsage } from '@/lib/usage'
+
 type Pod = {
   id: string
   name: string
@@ -11,6 +13,11 @@ type Pod = {
   cost_per_minute_cents: number
   monthly_price_cents: number
   status: string
+  channel: string | null
+  included_messages_per_month: number | null
+  chat_rate_per_message_cents: number | null
+  message_basis: string | null
+  billing_starts_at: string | null
 }
 
 function money(cents: number) {
@@ -27,11 +34,11 @@ export default async function AdminPage() {
   const [{ data }, { data: callTotals }] = await Promise.all([
     supabase
       .from('clients')
-      .select('id, name, slug, billing_mode, rate_per_minute_cents, cost_per_minute_cents, monthly_price_cents, status')
+      .select('id, name, slug, billing_mode, rate_per_minute_cents, cost_per_minute_cents, monthly_price_cents, status, channel, included_messages_per_month, chat_rate_per_message_cents, message_basis, billing_starts_at')
       .order('created_at', { ascending: false }),
     supabase
       .from('calls')
-      .select('billed_cents, cost_cents')
+      .select('client_id, billed_cents, cost_cents, started_at, call_type, message_count, user_message_count')
       .gte('started_at', monthStart),
   ])
 
@@ -40,6 +47,24 @@ export default async function AdminPage() {
   const totalBilledCents = (callTotals ?? []).reduce((s, r) => s + Number(r.billed_cents), 0)
   const totalCostCents   = (callTotals ?? []).reduce((s, r) => s + Number(r.cost_cents), 0)
   const marginCents      = totalBilledCents - totalCostCents
+
+  // Month-to-date message usage for chat pods (allowance, overage, projection).
+  const usageByPod = new Map<string, MonthUsage>()
+  for (const p of pods) {
+    if (p.channel !== 'chat') continue
+    const rows = (callTotals ?? []).filter(
+      (r) => r.client_id === p.id && (!p.billing_starts_at || (r.started_at ?? '') >= p.billing_starts_at)
+    )
+    usageByPod.set(
+      p.id,
+      monthUsage(rows, {
+        included_messages_per_month: p.included_messages_per_month ?? 0,
+        chat_rate_per_message_cents: p.chat_rate_per_message_cents ?? 0,
+        monthly_price_cents: p.monthly_price_cents,
+        message_basis: p.message_basis === 'all' ? 'all' : 'agent',
+      })
+    )
+  }
 
   return (
     <div className="mx-auto max-w-5xl space-y-8">
@@ -71,10 +96,11 @@ export default async function AdminPage() {
 
       {/* Pods */}
       <div className="border border-ink/15 bg-card">
-        <div className="grid grid-cols-[1.5fr_1fr_1fr_0.8fr] gap-4 border-b border-ink/15 px-6 py-3 text-[11px] uppercase tracking-[0.18em] text-muted">
+        <div className="grid grid-cols-[1.5fr_1fr_1fr_1.2fr_0.8fr] gap-4 border-b border-ink/15 px-6 py-3 text-[11px] uppercase tracking-[0.18em] text-muted">
           <span>Client</span>
           <span>Rate</span>
           <span>Billing</span>
+          <span>This month</span>
           <span>Status</span>
         </div>
 
@@ -91,10 +117,12 @@ export default async function AdminPage() {
             </div>
           </div>
         ) : (
-          pods.map((p) => (
+          pods.map((p) => {
+            const u = usageByPod.get(p.id)
+            return (
             <div
               key={p.id}
-              className="grid grid-cols-[1.5fr_1fr_1fr_0.8fr] items-center gap-4 border-b border-ink/10 px-6 py-4 text-sm transition last:border-0 hover:bg-ink/[0.02]"
+              className="grid grid-cols-[1.5fr_1fr_1fr_1.2fr_0.8fr] items-center gap-4 border-b border-ink/10 px-6 py-4 text-sm transition last:border-0 hover:bg-ink/[0.02]"
             >
               <div>
                 <Link href={`/${p.slug}`} className="text-ink hover:text-seal">
@@ -103,14 +131,44 @@ export default async function AdminPage() {
                 <p className="text-xs text-muted">/{p.slug}</p>
               </div>
               <span className="text-ink">
-                {p.billing_mode === 'per_minute'
-                  ? `${money(p.rate_per_minute_cents)}/min`
-                  : `${money(p.monthly_price_cents)}/mo`}
+                {p.channel === 'chat' ? (
+                  <>
+                    {money(p.monthly_price_cents)}/mo
+                    <span className="block text-xs text-muted">
+                      {(p.included_messages_per_month ?? 0).toLocaleString()} msgs incl. ·{' '}
+                      {money(p.chat_rate_per_message_cents ?? 0)}/msg over
+                    </span>
+                  </>
+                ) : p.billing_mode === 'per_minute' ? (
+                  `${money(p.rate_per_minute_cents)}/min`
+                ) : (
+                  `${money(p.monthly_price_cents)}/mo`
+                )}
               </span>
               <span className="text-muted">
-                {p.billing_mode === 'per_minute'
-                  ? 'Per minute'
-                  : 'Monthly + usage'}
+                {p.channel === 'chat'
+                  ? 'Chat plan'
+                  : p.billing_mode === 'per_minute'
+                    ? 'Per minute'
+                    : 'Monthly + usage'}
+              </span>
+              <span className="text-muted">
+                {u ? (
+                  <>
+                    <span className={u.overageMessages > 0 ? 'text-seal' : 'text-ink'}>
+                      {u.used.toLocaleString()}
+                    </span>{' '}
+                    / {u.included.toLocaleString()} msgs
+                    <span className="block text-xs">
+                      proj. {u.projectedUsed.toLocaleString()} ·{' '}
+                      <span className={u.projectedOverageCents > 0 ? 'text-seal' : ''}>
+                        {money(u.projectedOverageCents)} over
+                      </span>
+                    </span>
+                  </>
+                ) : (
+                  '—'
+                )}
               </span>
               <span className="flex items-center justify-between gap-2 text-muted">
                 <span className="flex items-center gap-2">
@@ -125,7 +183,8 @@ export default async function AdminPage() {
                 </Link>
               </span>
             </div>
-          ))
+            )
+          })
         )}
       </div>
     </div>

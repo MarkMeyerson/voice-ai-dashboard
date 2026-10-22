@@ -6,7 +6,7 @@ import { getProfile } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createSetupCheckout } from '@/lib/stripe'
-import { callToRow, type RetellCall } from '@/lib/retell'
+import { callToRow, syncAgentChats, type RetellCall } from '@/lib/retell'
 
 // Starts a hosted Stripe Checkout (setup mode) so the client adds a card once.
 export async function addPaymentMethod(slug: string) {
@@ -40,7 +40,7 @@ export async function syncCalls(slug: string) {
   const admin = createAdminClient()
   const { data: client } = await admin
     .from('clients')
-    .select('id, rate_per_minute_cents, retell_api_key, retell_agent_id')
+    .select('id, rate_per_minute_cents, chat_rate_per_message_cents, message_basis, retell_api_key, retell_agent_id')
     .eq('slug', slug)
     .maybeSingle()
   if (!client) return
@@ -50,12 +50,38 @@ export async function syncCalls(slug: string) {
 
   const { data: pa } = await admin
     .from('pod_agents')
-    .select('retell_agent_id')
+    .select('retell_agent_id, channel, label')
     .eq('client_id', client.id)
-  const agentIds = new Set<string>((pa ?? []).map((a) => a.retell_agent_id))
-  if (client.retell_agent_id) agentIds.add(client.retell_agent_id)
+  const chatAgents = (pa ?? []).filter((a) => a.channel === 'chat')
+  const agentIds = new Set<string>(
+    (pa ?? []).filter((a) => a.channel !== 'chat').map((a) => a.retell_agent_id)
+  )
+  if (client.retell_agent_id && !chatAgents.some((a) => a.retell_agent_id === client.retell_agent_id)) {
+    agentIds.add(client.retell_agent_id)
+  }
 
   const key = client.retell_api_key || process.env.RETELL_API_KEY!
+
+  // Chat agents: full objects (transcript + turns), ongoing chats included.
+  for (const a of chatAgents) {
+    try {
+      await syncAgentChats({
+        agentId: a.retell_agent_id,
+        key,
+        clientId: client.id,
+        ratePerMessageCents: client.chat_rate_per_message_cents ?? 0,
+        basis: client.message_basis === 'all' ? 'all' : 'agent',
+        agentLabel: a.label ?? null,
+        limit: 100,
+        upsert: async (rows) => {
+          await admin.from('calls').upsert(rows, { onConflict: 'retell_call_id' })
+        },
+      })
+    } catch {
+      /* skip this agent on error */
+    }
+  }
+
   for (const agentId of agentIds) {
     try {
       const res = await fetch('https://api.retellai.com/v3/list-calls', {
