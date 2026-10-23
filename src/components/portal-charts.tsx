@@ -198,6 +198,8 @@ export default function PortalCharts({
 }) {
   const [activeMetric, setActiveMetric] = useState<MetricKey>('calls')
   const [range, setRange] = useState<RangeKey>('all')
+  // "Now" is fixed at mount so range filtering is pure across re-renders.
+  const [now] = useState(() => Date.now())
 
   // Pre-billing test calls are excluded from every chart and total; they
   // remain visible only in the call log below the divider.
@@ -210,9 +212,9 @@ export default function PortalCharts({
   const scopedCalls = useMemo(() => {
     if (range === 'all') return billableCalls
     const days = range === 'week' ? 7 : range === 'month' ? 30 : 365
-    const cutoff = Date.now() - days * 86400000
+    const cutoff = now - days * 86400000
     return billableCalls.filter((c) => c.started_at && Date.parse(c.started_at) >= cutoff)
-  }, [billableCalls, range])
+  }, [billableCalls, range, now])
 
   // ── overview totals ──────────────────────────────────────────────────────
   const totals = useMemo(() => {

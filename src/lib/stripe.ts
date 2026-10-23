@@ -239,13 +239,16 @@ export async function getClientBilling(customerId: string) {
   }
 }
 
-// Report a call's minutes to the meter for a customer.
+// Report a call's minutes to the meter for a customer. `identifier` makes the
+// event idempotent on Stripe's side (duplicates within 24h are ignored).
 export async function reportUsage(args: {
   stripeCustomerId: string
   minutes: number
+  identifier?: string
 }) {
   return stripe.billing.meterEvents.create({
     event_name: METER_EVENT,
+    identifier: args.identifier,
     payload: {
       stripe_customer_id: args.stripeCustomerId,
       value: String(args.minutes),
@@ -253,17 +256,19 @@ export async function reportUsage(args: {
   })
 }
 
-// Chat billing: one unit per agent message, on its own meter
-// (meter mtr_61V1TATjzeboyor5I41FQqJQWFORDBz6, price $0.05/msg on Campbell).
+// Chat billing: one unit per metered message, on its own meter (found or
+// created by ensureChatMeter in whichever Stripe mode the key is in).
 const CHAT_METER_EVENT =
   process.env.STRIPE_CHAT_METER_EVENT || 'voicedesk_chat_messages'
 
 export async function reportChatUsage(args: {
   stripeCustomerId: string
   messages: number
+  identifier?: string
 }) {
   return stripe.billing.meterEvents.create({
     event_name: CHAT_METER_EVENT,
+    identifier: args.identifier,
     payload: {
       stripe_customer_id: args.stripeCustomerId,
       value: String(args.messages),

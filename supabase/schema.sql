@@ -120,6 +120,19 @@ alter table public.clients
   add column if not exists stripe_monthly_price_id text,   -- flat retainer price
   add column if not exists stripe_usage_price_id   text;   -- metered price (minutes, or tiered messages)
 
+-- Billing start (added by hand originally; tracked in migrations/20261023_client_column_grants.sql)
+alter table public.clients
+  add column if not exists billing_starts_at timestamptz;  -- calls before this are tests, never billed
+
+-- Client logins read only the columns the portal shows; secrets and cost
+-- basis stay admin/service-role only (migrations/20261023_client_column_grants.sql).
+revoke select on public.clients from anon, authenticated;
+grant select (
+  id, name, slug, billing_mode, rate_per_minute_cents, monthly_price_cents,
+  status, created_at, billing_starts_at, stripe_customer_id,
+  channel, included_messages_per_month, chat_rate_per_message_cents, message_basis
+) on public.clients to authenticated;
+
 -- ============================================================
 --  ROW-LEVEL SECURITY  — this is what walls each client off.
 --  security-definer helpers avoid recursive policy checks.

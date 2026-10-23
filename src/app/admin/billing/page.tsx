@@ -1,5 +1,5 @@
 import { requireAdmin } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { getClientBilling } from '@/lib/stripe'
 
 function money(cents: number) {
@@ -16,7 +16,7 @@ const statusStyle: Record<string, string> = {
 
 export default async function BillingPage() {
   await requireAdmin()
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   const { data: clientsData } = await supabase
     .from('clients')

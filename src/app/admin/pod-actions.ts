@@ -24,7 +24,7 @@ export async function deleteClientPod(clientId: string) {
 
   const { data: client } = await admin
     .from('clients')
-    .select('id, stripe_subscription_id, retell_api_key')
+    .select('id, stripe_subscription_id, retell_api_key, ingest_mode')
     .eq('id', clientId)
     .maybeSingle()
   if (!client) redirect('/admin')
@@ -38,11 +38,13 @@ export async function deleteClientPod(clientId: string) {
   }
 
   // Detach webhooks from this pod's agents so they stop sending us calls.
+  // Poll-mode pods never owned the webhook (it belongs to another service,
+  // e.g. the WFWC Modal transcript endpoint), so leave it untouched.
   const key = client.retell_api_key || process.env.RETELL_API_KEY
-  const { data: agents } = await admin
-    .from('pod_agents')
-    .select('retell_agent_id')
-    .eq('client_id', clientId)
+  const { data: agents } =
+    client.ingest_mode === 'poll'
+      ? { data: [] as { retell_agent_id: string }[] }
+      : await admin.from('pod_agents').select('retell_agent_id').eq('client_id', clientId)
   for (const a of agents ?? []) {
     try {
       await fetch(`https://api.retellai.com/update-agent/${a.retell_agent_id}`, {
@@ -288,7 +290,26 @@ export async function createClientPod(formData: FormData): Promise<void> {
   // --- Stripe: customer + metered (and optional monthly) subscription ---
   let stripeCustomerId: string | null = null
   let stripeSubscriptionId: string | null = null
-  if (!skipStripe) try {
+  let stripeMonthlyPriceId: string | null = null
+  let stripeUsagePriceId: string | null = null
+  if (!skipStripe && plan.channel === 'chat') {
+    // Chat plans: customer + prices only. The subscription starts when the
+    // client adds a payment method (Stripe webhook), never a per-minute one.
+    try {
+      const customer = await createCustomer({ name, email: emails[0] || '', slug })
+      stripeCustomerId = customer.id
+      const prices = await createChatPlanPrices({
+        clientName: name,
+        monthlyCents: monthly_price_cents,
+        includedMessages: plan.included_messages_per_month,
+        overagePerMessageCents: plan.chat_rate_per_message_cents ?? 0,
+      })
+      stripeMonthlyPriceId = prices.monthlyPriceId
+      stripeUsagePriceId = prices.usagePriceId
+    } catch (e) {
+      console.error('stripe chat plan setup failed', e)
+    }
+  } else if (!skipStripe) try {
     const customer = await createCustomer({
       name,
       email: emails[0] || '',
@@ -334,6 +355,8 @@ export async function createClientPod(formData: FormData): Promise<void> {
       monthly_price_cents,
       stripe_customer_id: stripeCustomerId,
       stripe_subscription_id: stripeSubscriptionId,
+      stripe_monthly_price_id: stripeMonthlyPriceId,
+      stripe_usage_price_id: stripeUsagePriceId,
       notification_email,
       status: 'active',
       ...plan,

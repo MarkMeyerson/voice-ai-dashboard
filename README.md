@@ -46,7 +46,7 @@ cp .env.example .env.local   # then fill in your values (next steps)
 ### 3. Supabase
 1. Create a project.
 2. In the SQL editor, paste and run [`supabase/schema.sql`](./supabase/schema.sql). It creates the
-   5 tables, row-level security, the security-definer helpers, and the role grants.
+   6 tables, row-level security, the security-definer helpers, and the role grants.
 3. Project Settings → API: copy the **Project URL**, **anon key**, and **service_role key** into
    `.env.local`.
 4. Create your **first admin**: in Authentication → Users, add a user (email + password). Then in
@@ -82,9 +82,9 @@ Set all the env vars in the Vercel project, deploy, then set `NEXT_PUBLIC_APP_UR
 and point your Stripe + Retell webhooks at the deployed `/api/webhooks/*` routes.
 
 ## Going to production (read this)
-- **Webhook signature is intentionally lenient** in this build: `src/app/api/webhooks/retell/route.ts`
-  logs and records even on a signature mismatch so calls aren't dropped during testing.
-  **Re-enable the 401** (it's a one-line change, marked with a comment) before going live.
+- Set `CRON_SECRET` in the Vercel project; `/api/cron/reconcile` refuses to run without it.
+- Make the `call-transcripts` Storage bucket **private**. Transcript links in emails are signed and expire after 7 days.
+- Run every file in `supabase/migrations/` after `schema.sql` on an existing database (all idempotent).
 - Add error monitoring (e.g. Sentry) and Terms/Privacy pages (you're storing call recordings/PII).
 - Verify your Resend domain and switch off the test sender.
 

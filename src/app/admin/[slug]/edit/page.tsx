@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { requireAdmin } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { PodForm } from '@/components/pod-form'
 import { DeletePodButton } from '@/components/delete-pod-button'
 import { AttachStripeButton } from '@/components/attach-stripe-button'
@@ -17,7 +17,9 @@ export default async function EditPodPage({
 }) {
   await requireAdmin()
   const { slug } = await params
-  const supabase = await createClient()
+  // Admin-only page: needs retell_api_key and Stripe ids, which client
+  // logins are not granted; the service-role client bypasses that.
+  const supabase = createAdminClient()
 
   const { data: client } = await supabase
     .from('clients')

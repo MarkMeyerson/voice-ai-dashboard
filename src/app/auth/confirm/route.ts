@@ -8,9 +8,12 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url)
   const token_hash = url.searchParams.get('token_hash')
   const type = url.searchParams.get('type') as EmailOtpType | null
-  const next = url.searchParams.get('next') ?? '/reset-password'
+  // Only same-origin paths: an absolute URL (or "//host") in `next` would
+  // bounce a freshly verified user off-site.
+  const rawNext = url.searchParams.get('next') ?? '/reset-password'
+  const next = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/reset-password'
 
-  let response = NextResponse.redirect(new URL(next, url.origin))
+  const response = NextResponse.redirect(new URL(next, url.origin))
 
   if (token_hash && type) {
     const supabase = createServerClient(

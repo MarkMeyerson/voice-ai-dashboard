@@ -16,8 +16,11 @@ src/
   lib/
     supabase/{client,server,admin,proxy}.ts   # browser / RSC / service-role / proxy clients
     auth.ts                        # getProfile() DAL + requireAdmin()
-    stripe.ts                      # customers, metered+monthly prices, subs, usage, billing reads
-    retell.ts                      # signature verify, callToRow mapper, agent webhook + list helpers
+    stripe.ts                      # customers, metered+monthly+tiered prices, subs, meter events, billing reads
+    retell.ts                      # signature verify, callToRow/chatToRow mappers, list + get + syncAgentChats
+    metering.ts                    # Stripe usage reporting (DB-first, idempotent): calls once, chats as deltas
+    usage.ts                       # month bounds (Chicago), metered-message rule, usage card math
+    drive.ts                       # transcript files in Supabase Storage (name is historical), signed URLs
     email.ts                       # Resend client + branded transactional templates
   app/
     login/ forgot-password/ reset-password/   # auth screens
@@ -26,6 +29,7 @@ src/
     admin/pod-actions.ts           # create / update / delete pod, fetchAgents (server actions)
     [slug]/                        # client portal (dashboard + settings) + actions.ts (payment, sync)
     api/webhooks/{retell,stripe}/route.ts
+    api/cron/reconcile/route.ts    # every 15 min (vercel.json): heals missed webhooks, polls poll-mode pods
   components/                      # brand, call-log, portal-charts, payment-method, pod-form, etc.
 supabase/schema.sql                # run this in Supabase SQL editor (tables + RLS + grants)
 ```
@@ -74,7 +78,11 @@ original freeze). Changes to an existing database go in `supabase/migrations/*.s
 - **Billing**: a card added in the client portal (Stripe Checkout setup mode) becomes the default PM
   via the `checkout.session.completed` webhook; the subscription then auto-charges monthly.
 
-## Before production
-`src/app/api/webhooks/retell/route.ts` currently records calls **even if the Retell signature
-fails** (logged), so nothing is dropped while testing. Re-enable the `401` (marked with a comment).
-Also add error monitoring + legal pages, and verify a Resend sending domain.
+## Production notes
+- The Retell webhook returns `401` on a bad signature (verified with the pod key, then the global key).
+- `/api/cron/reconcile` refuses to run unless `CRON_SECRET` is set (Vercel sends it automatically).
+- The `call-transcripts` Storage bucket must be **private**; emails carry 7-day signed links.
+- Client logins are granted only the `clients` columns the portal shows (see
+  `supabase/migrations/20261023_client_column_grants.sql`); admin pages use the service-role client.
+- Still to do: error monitoring, legal pages, a verified Resend sending domain.
+- Review findings and status: `docs/review-2026-10-23.md`.

@@ -35,7 +35,6 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      # Build only (includes full TypeScript checking). eslint is NOT enforced
-      # yet: the codebase has 2 pre-existing lint errors (see repo notes) —
-      # add `npx eslint .` here once they're cleaned up.
+      - run: npx eslint src
+      # Full TypeScript checking happens inside the build.
       - run: npx next build

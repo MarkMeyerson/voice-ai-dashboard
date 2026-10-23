@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import Retell from 'retell-sdk'
+import { meteredMessages } from '@/lib/usage'
 
 // Server-side Retell API client (used to set agent webhook URLs, pull calls, etc.)
 export function retellClient() {
@@ -200,9 +201,10 @@ export function chatTurnCounts(chat: RetellChat) {
   return { agent, user }
 }
 
-// Map a Retell chat to a row in our `calls` table. `message_count` is the
-// metered quantity under the pod's basis: 'agent' = assistant turns only
-// (mirrors Retell's own per-message cost basis), 'all' = assistant + user.
+// Map a Retell chat to a row in our `calls` table. `message_count` is always
+// assistant turns and `user_message_count` visitor turns; the pod's basis
+// ('agent' = assistant only, mirroring Retell's cost basis; 'all' = both)
+// only affects billed_cents here. See meteredMessages in lib/usage.ts.
 export function chatToRow(
   chat: RetellChat,
   clientId: string,
@@ -210,10 +212,7 @@ export function chatToRow(
   basis: 'agent' | 'all' = 'agent'
 ) {
   const turns = chatTurnCounts(chat)
-  // A chat where the visitor never typed is just the automatic greeting
-  // (widget opened and closed); it is stored but meters as zero messages.
-  const metered =
-    turns.user === 0 ? 0 : basis === 'all' ? turns.agent + turns.user : turns.agent
+  const metered = meteredMessages(turns.agent, turns.user, basis)
   const durationSeconds =
     chat.start_timestamp && chat.end_timestamp
       ? Math.max(0, Math.round((chat.end_timestamp - chat.start_timestamp) / 1000))
@@ -229,7 +228,7 @@ export function chatToRow(
     duration_seconds: durationSeconds,
     cost_cents: chat.chat_cost?.combined_cost ?? 0,
     billed_cents: metered * ratePerMessageCents,
-    message_count: metered,
+    message_count: turns.user === 0 ? 0 : turns.agent,
     user_message_count: turns.user,
     from_number: null,
     to_number: null,
@@ -254,7 +253,10 @@ export async function syncAgentChats(args: {
   agentLabel?: string | null
   sinceMs?: number
   limit?: number
-  upsert: (rows: ReturnType<typeof chatToRow>[]) => Promise<void>
+  // Skip the full fetch for summaries the caller already has (e.g. ended
+  // chats that are stored); defaults to fetching everything listed.
+  shouldFetch?: (summary: RetellChat) => boolean
+  upsert: (rows: (ReturnType<typeof chatToRow> & { agent_label: string | null })[]) => Promise<void>
 }): Promise<string[]> {
   const summaries = await listAgentChats(args.agentId, args.key, {
     sinceMs: args.sinceMs,
@@ -262,6 +264,7 @@ export async function syncAgentChats(args: {
   })
   const rows: (ReturnType<typeof chatToRow> & { agent_label: string | null })[] = []
   for (const s of summaries) {
+    if (args.shouldFetch && !args.shouldFetch(s)) continue
     try {
       const full = await getChat(s.chat_id, args.key)
       rows.push({

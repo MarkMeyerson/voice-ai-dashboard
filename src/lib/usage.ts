@@ -57,11 +57,19 @@ export function isChatType(callType: string | null | undefined) {
   return callType === 'chat' || callType === 'api_chat' || callType === 'sms_chat' || callType === 'web_chat'
 }
 
-// Messages a row contributes under a basis.
+// The single definition of "how many messages does this chat meter as".
+// `message_count` is ALWAYS assistant turns (0 for greeting-only chats where
+// the visitor never typed); `user_message_count` is visitor turns. The basis
+// decides whether visitor turns count. Used by chatToRow (billed_cents), the
+// usage card, the admin list, the call log and Stripe metering, so they agree.
+export function meteredMessages(agentTurns: number, userTurns: number, basis: MessageBasis) {
+  if (userTurns === 0) return 0
+  return basis === 'all' ? agentTurns + userTurns : agentTurns
+}
+
+// Messages a stored row contributes under a basis.
 export function rowMessages(row: UsageRow, basis: MessageBasis) {
-  const agent = Number(row.message_count ?? 0)
-  const user = Number(row.user_message_count ?? 0)
-  return basis === 'all' ? agent + user : agent
+  return meteredMessages(Number(row.message_count ?? 0), Number(row.user_message_count ?? 0), basis)
 }
 
 export type MonthUsage = {

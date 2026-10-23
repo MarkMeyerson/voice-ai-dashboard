@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { rowMessages } from '@/lib/usage'
 
 export type CallRow = {
   id: string
@@ -130,9 +131,9 @@ export function CallLog({
       : scoped
     const billed = billable.reduce((s, c) => s + Number(c.billed_cents), 0)
     const minutes = billable.reduce((s, c) => s + c.duration_seconds / 60, 0)
-    const messages = billable.reduce((s, c) => s + Number(c.message_count ?? 0), 0)
+    const messages = billable.reduce((s, c) => s + rowMessages(c, messageBasis), 0)
     return { billed, minutes, messages, count: billable.length }
-  }, [scoped, billingStartsAt])
+  }, [scoped, billingStartsAt, messageBasis])
 
   return (
     <div className="space-y-6">
@@ -199,7 +200,7 @@ export function CallLog({
             <p className="mt-1 text-sm text-muted">Try a different month or search.</p>
           </div>
         ) : (
-          withDivider.map((item, i) =>
+          withDivider.map((item) =>
             item.kind === 'divider' ? (
               <div key="billing-divider" className="relative flex items-center gap-4 border-b border-ink/10 px-6 py-2.5">
                 <div className="h-px flex-1 bg-seal/40" />
@@ -247,8 +248,8 @@ export function CallLog({
                   <span className="text-muted">
                     {isChatRow(item.call)
                       ? chatMode
-                        ? String(item.call.message_count ?? 0)
-                        : `${item.call.message_count ?? 0} msgs`
+                        ? String(rowMessages(item.call, messageBasis))
+                        : `${rowMessages(item.call, messageBasis)} msgs`
                       : mmss(item.call.duration_seconds)}
                   </span>
                   <span className="text-ink">

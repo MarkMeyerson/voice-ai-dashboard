@@ -7,7 +7,7 @@ import {
   type RetellCall,
   type RetellChat,
 } from '@/lib/retell'
-import { reportUsage, reportChatUsage } from '@/lib/stripe'
+import { reportCallUsageOnce, reportChatUsageDeltas } from '@/lib/metering'
 import { ensureClientFolder, uploadTranscriptToDrive } from '@/lib/drive'
 import { sendCallSummaryEmail, sendChatSummaryEmail } from '@/lib/email'
 
@@ -38,6 +38,8 @@ export async function POST(request: NextRequest) {
         slug: string
         rate_per_minute_cents: number
         chat_rate_per_message_cents: number | null
+        message_basis: string | null
+        billing_starts_at: string | null
         stripe_customer_id: string | null
         retell_api_key: string | null
         notification_email: string | null
@@ -58,7 +60,7 @@ export async function POST(request: NextRequest) {
   const q = supabase
     .from('clients')
     .select(
-      'id, name, slug, rate_per_minute_cents, chat_rate_per_message_cents, stripe_customer_id, retell_api_key, notification_email, drive_folder_id'
+      'id, name, slug, rate_per_minute_cents, chat_rate_per_message_cents, message_basis, billing_starts_at, stripe_customer_id, retell_api_key, notification_email, drive_folder_id'
     )
   const { data } = clientId
     ? await q.eq('id', clientId).maybeSingle()
@@ -89,52 +91,38 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ignored: event })
     }
 
+    const basis = client.message_basis === 'all' ? 'all' : 'agent'
     const row = {
-      ...chatToRow(chat, client.id, client.chat_rate_per_message_cents ?? 0),
+      ...chatToRow(chat, client.id, client.chat_rate_per_message_cents ?? 0, basis),
       agent_label: agentLabel,
     }
     const { data: upserted, error } = await supabase
       .from('calls')
       .upsert(row, { onConflict: 'retell_call_id' })
-      .select('id')
+      .select('id, email_sent_at')
       .single()
     if (error) return new NextResponse(error.message, { status: 500 })
 
-    // Bill agent messages once per chat (idempotency via usage_events;
-    // the `minutes` column stores the metered quantity — messages here).
-    if (
-      event === 'chat_ended' &&
-      client.stripe_customer_id &&
-      client.chat_rate_per_message_cents &&
-      row.message_count > 0 &&
-      upserted?.id
-    ) {
-      const { data: alreadyReported } = await supabase
-        .from('usage_events')
-        .select('id')
-        .eq('call_id', upserted.id)
-        .maybeSingle()
-
-      if (!alreadyReported) {
-        try {
-          const meterEvent = await reportChatUsage({
-            stripeCustomerId: client.stripe_customer_id,
-            messages: row.message_count,
-          })
-          await supabase.from('usage_events').insert({
-            client_id: client.id,
-            call_id: upserted.id,
-            minutes: row.message_count,
-            stripe_meter_event_id: meterEvent.identifier,
-          })
-        } catch (e) {
-          console.error('[stripe] reportChatUsage failed', e)
-        }
-      }
+    // Bill the chat's messages (delta-based and idempotent, so a chat_ended
+    // retry or a later cron pass cannot double-report).
+    if (event === 'chat_ended' && upserted?.id) {
+      await reportChatUsageDeltas({
+        supabase,
+        client,
+        rows: [
+          {
+            id: upserted.id,
+            retell_call_id: chat.chat_id,
+            message_count: row.message_count,
+            user_message_count: row.user_message_count,
+            started_at: row.started_at,
+          },
+        ],
+      })
     }
 
-    // Transcript archive + chat summary email — fires on chat_analyzed.
-    if (event === 'chat_analyzed' && client.notification_email) {
+    // Transcript archive + chat summary email — fires on chat_analyzed, once.
+    if (event === 'chat_analyzed' && client.notification_email && !upserted?.email_sent_at) {
       try {
         let folderId = client.drive_folder_id
         if (!folderId) {
@@ -165,7 +153,7 @@ export async function POST(request: NextRequest) {
           to: toAddresses.length === 1 ? toAddresses[0] : toAddresses,
           clientName: agentLabel ? `${client.name} · ${agentLabel}` : client.name,
           chatId: chat.chat_id,
-          messageCount: row.message_count,
+          messageCount: basis === 'all' ? row.message_count + row.user_message_count : row.message_count,
           durationSeconds: row.duration_seconds,
           sentiment: chat.chat_analysis?.user_sentiment ?? null,
           summary: chat.chat_analysis?.chat_summary ?? null,
@@ -199,38 +187,27 @@ export async function POST(request: NextRequest) {
   const { data: upserted, error } = await supabase
     .from('calls')
     .upsert(row, { onConflict: 'retell_call_id' })
-    .select('id')
+    .select('id, email_sent_at')
     .single()
   if (error) return new NextResponse(error.message, { status: 500 })
 
-  // Report usage to Stripe only on call_ended, only once per call (idempotency via usage_events).
-  if (event === 'call_ended' && client.stripe_customer_id && upserted?.id) {
-    const { data: alreadyReported } = await supabase
-      .from('usage_events')
-      .select('id')
-      .eq('call_id', upserted.id)
-      .maybeSingle()
-
-    if (!alreadyReported) {
-      try {
-        const meterEvent = await reportUsage({
-          stripeCustomerId: client.stripe_customer_id,
-          minutes: row.duration_seconds / 60,
-        })
-        await supabase.from('usage_events').insert({
-          client_id: client.id,
-          call_id: upserted.id,
-          minutes: row.duration_seconds / 60,
-          stripe_meter_event_id: meterEvent.identifier,
-        })
-      } catch (e) {
-        console.error('[stripe] reportUsage failed', e)
-      }
-    }
+  // Report usage to Stripe on call_ended, exactly once per call.
+  if (event === 'call_ended' && upserted?.id) {
+    await reportCallUsageOnce({
+      supabase,
+      client,
+      call: {
+        id: upserted.id,
+        retell_call_id: call.call_id,
+        duration_seconds: row.duration_seconds,
+        started_at: row.started_at,
+      },
+    })
   }
 
-  // Drive mirror + call summary email — fires on call_analyzed (has transcript + sentiment).
-  if (event === 'call_analyzed' && client.notification_email) {
+  // Transcript archive + call summary email — fires on call_analyzed, once
+  // (a replayed delivery must not re-send it).
+  if (event === 'call_analyzed' && client.notification_email && !upserted?.email_sent_at) {
     try {
       let folderId = client.drive_folder_id
 

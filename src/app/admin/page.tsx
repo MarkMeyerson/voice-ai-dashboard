@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { requireAdmin } from '@/lib/auth'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 import { monthUsage, type MonthUsage } from '@/lib/usage'
 
@@ -26,7 +26,9 @@ function money(cents: number) {
 
 export default async function AdminPage() {
   await requireAdmin()
-  const supabase = await createClient()
+  // Admin-only page: the service-role client reads columns (cost basis,
+  // Stripe ids) that client logins are no longer granted.
+  const supabase = createAdminClient()
 
   const now = new Date()
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()

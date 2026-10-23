@@ -14,7 +14,13 @@ export async function ensureClientFolder(clientName: string): Promise<string | n
   return clientName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 }
 
-// Uploads a transcript .txt to Supabase Storage and returns a public URL.
+// Emailed transcript links expire after this long. The bucket must be PRIVATE
+// (Supabase → Storage → call-transcripts → settings); transcripts are customer
+// conversations and the path is guessable, so a public bucket leaks them.
+const SIGNED_URL_SECONDS = 7 * 24 * 3600
+
+// Uploads a transcript .txt to Supabase Storage and returns a signed URL that
+// works for a week without a login.
 export async function uploadTranscriptToDrive(opts: {
   folderId: string
   callId: string
@@ -38,6 +44,12 @@ export async function uploadTranscriptToDrive(opts: {
     return null
   }
 
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path)
-  return data.publicUrl ?? null
+  const { data, error: signError } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUrl(path, SIGNED_URL_SECONDS)
+  if (signError) {
+    console.error('[storage] sign failed', signError)
+    return null
+  }
+  return data?.signedUrl ?? null
 }
