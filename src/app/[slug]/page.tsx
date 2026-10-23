@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { getProfile } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
-import { getDefaultPaymentMethod } from '@/lib/stripe'
+import { getDefaultPaymentMethodAny } from '@/lib/stripe'
 import { Logo } from '@/components/brand'
 import { SignOut } from '@/components/sign-out'
 import { PaymentMethodCard } from '@/components/payment-method'
@@ -44,7 +44,7 @@ export default async function ClientDashboard({
     : undefined
 
   const card = client.stripe_customer_id
-    ? await getDefaultPaymentMethod(client.stripe_customer_id).catch(() => null)
+    ? await getDefaultPaymentMethodAny(client.stripe_customer_id).catch(() => null)
     : null
 
   const { data } = await supabase

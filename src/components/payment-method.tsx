@@ -15,7 +15,7 @@ export function PaymentMethodCard({
   chatPlan,
 }: {
   slug: string
-  card: { brand: string; last4: string } | null
+  card: { kind?: 'card' | 'bank'; brand: string; last4: string } | null
   justAdded?: boolean
   billingMode: string
   rateCents: number
@@ -61,19 +61,20 @@ export function PaymentMethodCard({
         </p>
         {card ? (
           <p className="mt-1 text-ink">
-            <span className="capitalize">{card.brand}</span> ···· {card.last4}
+            <span className="capitalize">{card.brand}</span>
+            {card.kind === 'bank' ? ' bank account' : ''} ···· {card.last4}
             <span className="ml-2 text-sm text-muted">
               · billed automatically each month
             </span>
           </p>
         ) : (
           <p className="mt-1 text-sm text-muted">
-            No card on file. Add one and your monthly invoice is charged
-            automatically, no manual payments.
+            No payment method on file. Link a bank account (preferred, no card fees)
+            or a card, and your monthly invoice is paid automatically.
           </p>
         )}
         {justAdded && (
-          <p className="mt-1 text-sm text-seal">Card saved — you&apos;re all set.</p>
+          <p className="mt-1 text-sm text-seal">Payment method saved. You&apos;re all set.</p>
         )}
       </div>
 
@@ -82,7 +83,7 @@ export function PaymentMethodCard({
           pendingText="Opening secure checkout…"
           className="group relative rounded-full bg-ink px-5 py-2.5 text-sm tracking-wide text-card transition hover:bg-ink/90 disabled:opacity-60"
         >
-          {card ? 'Update card' : 'Add payment method'}
+          {card ? 'Update payment method' : 'Add payment method'}
           <span className="absolute right-3 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-seal" />
         </SubmitButton>
       </form>

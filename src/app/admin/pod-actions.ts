@@ -10,6 +10,7 @@ import {
   createMeteredPrice,
   createMonthlyPrice,
   createSubscription,
+  createChatPlanPrices,
 } from '@/lib/stripe'
 import { callToRow, listAgentCalls, listAgents, syncAgentChats } from '@/lib/retell'
 import { sendInviteEmail } from '@/lib/email'
@@ -72,6 +73,83 @@ export async function deleteClientPod(clientId: string) {
 
   revalidatePath('/admin')
   redirect('/admin')
+}
+
+// Attach Stripe to a pod created with "Set up Stripe later": customer + prices
+// from the pod's plan fields. No subscription yet — the Stripe webhook starts
+// it the moment the client adds a payment method, so billing begins that day.
+// Idempotent: a pod that already has a customer is left alone.
+export async function attachStripe(
+  clientId: string
+): Promise<{ ok?: true; error?: string }> {
+  await requireAdmin()
+  const admin = createAdminClient()
+
+  const { data: client } = await admin
+    .from('clients')
+    .select(
+      'id, name, slug, channel, billing_mode, rate_per_minute_cents, monthly_price_cents, included_messages_per_month, chat_rate_per_message_cents, stripe_customer_id, notification_email'
+    )
+    .eq('id', clientId)
+    .maybeSingle()
+  if (!client) return { error: 'Pod not found.' }
+  if (client.stripe_customer_id) return { error: 'Stripe is already attached.' }
+
+  const { data: login } = await admin
+    .from('profiles')
+    .select('email')
+    .eq('client_id', clientId)
+    .order('created_at')
+    .limit(1)
+    .maybeSingle()
+  const email = login?.email || client.notification_email || ''
+
+  try {
+    const customer = await createCustomer({ name: client.name, email, slug: client.slug })
+
+    let monthlyPriceId: string | null = null
+    let usagePriceId: string | null = null
+    if (client.channel === 'chat') {
+      const prices = await createChatPlanPrices({
+        clientName: client.name,
+        monthlyCents: client.monthly_price_cents,
+        includedMessages: client.included_messages_per_month ?? 0,
+        overagePerMessageCents: client.chat_rate_per_message_cents ?? 0,
+      })
+      monthlyPriceId = prices.monthlyPriceId
+      usagePriceId = prices.usagePriceId
+    } else {
+      const metered = await createMeteredPrice({
+        clientName: client.name,
+        ratePerMinuteCents: client.rate_per_minute_cents,
+      })
+      usagePriceId = metered.id
+      if (client.billing_mode === 'monthly_plus_usage' && client.monthly_price_cents > 0) {
+        const monthly = await createMonthlyPrice({
+          clientName: client.name,
+          monthlyCents: client.monthly_price_cents,
+        })
+        monthlyPriceId = monthly.id
+      }
+    }
+
+    const { error } = await admin
+      .from('clients')
+      .update({
+        stripe_customer_id: customer.id,
+        stripe_monthly_price_id: monthlyPriceId,
+        stripe_usage_price_id: usagePriceId,
+      })
+      .eq('id', clientId)
+    if (error) return { error: `Stripe objects created but could not be saved: ${error.message}` }
+  } catch (e) {
+    console.error('[stripe] attach failed', e)
+    return { error: e instanceof Error ? e.message : 'Stripe call failed.' }
+  }
+
+  revalidatePath(`/admin/${client.slug}/edit`)
+  revalidatePath('/admin/billing')
+  return { ok: true }
 }
 
 // ---------------------------------------------------------------------------

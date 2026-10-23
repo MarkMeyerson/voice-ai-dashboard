@@ -115,6 +115,11 @@ alter table public.calls
   add column if not exists user_message_count integer,                                     -- chat: user turns (metered count is message_count)
   add column if not exists chat_status        text;                                        -- 'ongoing' | 'ended' | 'error'
 
+-- Stripe prices per pod (2026-10-23, see migrations/20261023_stripe_price_ids.sql)
+alter table public.clients
+  add column if not exists stripe_monthly_price_id text,   -- flat retainer price
+  add column if not exists stripe_usage_price_id   text;   -- metered price (minutes, or tiered messages)
+
 -- ============================================================
 --  ROW-LEVEL SECURITY  — this is what walls each client off.
 --  security-definer helpers avoid recursive policy checks.

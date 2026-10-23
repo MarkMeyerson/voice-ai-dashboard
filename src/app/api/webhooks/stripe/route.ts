@@ -1,6 +1,10 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import type Stripe from 'stripe'
-import { stripe, setDefaultPaymentMethodFromSetup } from '@/lib/stripe'
+import {
+  stripe,
+  setDefaultPaymentMethodFromSetup,
+  createSubscriptionWithPaymentMethod,
+} from '@/lib/stripe'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 // Mirrors Stripe invoice state back into our `invoices` table.
@@ -30,9 +34,37 @@ export async function POST(request: NextRequest) {
           ? session.setup_intent
           : session.setup_intent.id
       try {
-        await setDefaultPaymentMethodFromSetup(session.customer, setupIntentId)
-      } catch {
-        // best effort
+        const pm = await setDefaultPaymentMethodFromSetup(session.customer, setupIntentId)
+
+        // Deferred billing: a pod attached to Stripe without a subscription
+        // starts one now, so the plan begins the day the client pays.
+        if (pm) {
+          const supabase = createAdminClient()
+          const { data: client } = await supabase
+            .from('clients')
+            .select('id, stripe_subscription_id, stripe_monthly_price_id, stripe_usage_price_id, billing_starts_at')
+            .eq('stripe_customer_id', session.customer)
+            .maybeSingle()
+          const priceIds = [client?.stripe_monthly_price_id, client?.stripe_usage_price_id].filter(
+            (p): p is string => Boolean(p)
+          )
+          if (client && !client.stripe_subscription_id && priceIds.length > 0) {
+            const sub = await createSubscriptionWithPaymentMethod({
+              customerId: session.customer,
+              priceIds,
+              paymentMethodId: pm,
+            })
+            await supabase
+              .from('clients')
+              .update({
+                stripe_subscription_id: sub.id,
+                billing_starts_at: client.billing_starts_at ?? new Date().toISOString(),
+              })
+              .eq('id', client.id)
+          }
+        }
+      } catch (e) {
+        console.error('[stripe webhook] setup completion failed', e)
       }
     }
   }

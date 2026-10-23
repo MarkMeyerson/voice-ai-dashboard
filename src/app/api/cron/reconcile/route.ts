@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { callToRow, chatToRow, listChats, syncAgentChats, type RetellCall } from '@/lib/retell'
 import { ensureClientFolder, uploadTranscriptToDrive } from '@/lib/drive'
 import { sendCallSummaryEmail, sendChatSummaryEmail, sendEmail } from '@/lib/email'
+import { reportChatUsageDeltas } from '@/lib/metering'
 
 export const maxDuration = 120
 
@@ -33,7 +34,7 @@ export async function GET(request: NextRequest) {
   const supabase = createAdminClient()
   const { data: clients } = await supabase
     .from('clients')
-    .select('id, name, slug, rate_per_minute_cents, chat_rate_per_message_cents, retell_api_key, retell_agent_id, notification_email, drive_folder_id, ingest_mode, message_basis')
+    .select('id, name, slug, rate_per_minute_cents, chat_rate_per_message_cents, retell_api_key, retell_agent_id, notification_email, drive_folder_id, ingest_mode, message_basis, stripe_customer_id, billing_starts_at')
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voicedesk-one.vercel.app'
   const adminEmail = process.env.ADMIN_SUMMARY_EMAIL
@@ -74,10 +75,18 @@ export async function GET(request: NextRequest) {
             agentLabel: a.label ?? null,
             sinceMs: cutoff,
             upsert: async (rows) => {
-              const { error } = await supabase
+              const { data: saved, error } = await supabase
                 .from('calls')
                 .upsert(rows, { onConflict: 'retell_call_id' })
+                .select('id, retell_call_id, message_count, started_at')
               if (error) throw new Error(error.message)
+              // Stripe meter: report only what grew since the last poll.
+              const sent = await reportChatUsageDeltas({
+                supabase,
+                client,
+                rows: saved ?? [],
+              })
+              if (sent > 0) polled.push(`${client.slug}:metered+${sent}`)
             },
           })
           polled.push(`${client.slug}:${ids.length}`)
