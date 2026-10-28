@@ -42,17 +42,20 @@ export async function POST(request: NextRequest) {
           const supabase = createAdminClient()
           const { data: client } = await supabase
             .from('clients')
-            .select('id, stripe_subscription_id, stripe_monthly_price_id, stripe_usage_price_id, billing_starts_at')
+            .select('id, channel, stripe_subscription_id, stripe_monthly_price_id, stripe_usage_price_id, billing_starts_at')
             .eq('stripe_customer_id', session.customer)
             .maybeSingle()
           const priceIds = [client?.stripe_monthly_price_id, client?.stripe_usage_price_id].filter(
             (p): p is string => Boolean(p)
           )
           if (client && !client.stripe_subscription_id && priceIds.length > 0) {
+            // Chat plans bill by calendar month so the included-message
+            // allowance in Stripe lines up with the dashboard's usage card.
             const sub = await createSubscriptionWithPaymentMethod({
               customerId: session.customer,
               priceIds,
               paymentMethodId: pm,
+              anchorToFirstOfMonth: client.channel === 'chat',
             })
             await supabase
               .from('clients')

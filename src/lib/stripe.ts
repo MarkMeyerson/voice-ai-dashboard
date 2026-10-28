@@ -204,12 +204,17 @@ export async function createChatPlanPrices(args: {
 }
 
 // Start a subscription now, charging the given payment method automatically.
-// Used when billing was deferred until the client added a payment method:
-// the billing anchor is the moment this runs.
+// Used when billing was deferred until the client added a payment method.
+// By default the billing anchor is the moment this runs. With
+// anchorToFirstOfMonth the cycle is pinned to the 1st: Stripe prorates the
+// flat retainer for the partial first month and the metered allowance then
+// resets on the 1st, which is the calendar month the dashboard's usage card
+// counts and the "resets monthly" wording in the client terms describes.
 export async function createSubscriptionWithPaymentMethod(args: {
   customerId: string
   priceIds: string[]
   paymentMethodId: string
+  anchorToFirstOfMonth?: boolean
 }) {
   return stripe.subscriptions.create({
     customer: args.customerId,
@@ -217,6 +222,12 @@ export async function createSubscriptionWithPaymentMethod(args: {
     default_payment_method: args.paymentMethodId,
     collection_method: 'charge_automatically',
     payment_settings: { save_default_payment_method: 'on_subscription' },
+    ...(args.anchorToFirstOfMonth
+      ? {
+          billing_cycle_anchor_config: { day_of_month: 1 },
+          proration_behavior: 'create_prorations' as const,
+        }
+      : {}),
   })
 }
 
